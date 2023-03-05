@@ -1,0 +1,3 @@
+docker run --gpus all -it --rm --net=host --privileged -v /tmp/.X11-unix:/tmp/.X11-unix -e DISPLAY=$DISPLAY --mount type=bind,src=/media/colin/D/expts/Deepstream/DeepstreamSolution,dst=/DeepstreamSolution -w /opt/nvidia/deepstream/deepstream-6.1 nvidia_deepstream_python_docker
+
+pip install pika jsonlib-python3 protobuf opencv-python mysql-connector-python
