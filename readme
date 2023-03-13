@@ -1,8 +1,7 @@
 Setting up the environment:
 
 You can use my docker:
-sudo docker run --gpus all -it --rm --net=host --privileged -v /tmp/.X11-unix:/tmp/.X11-unix -e DISPLAY=$DISPLAY --mount type=bind,src=/home/colin/Deepstream/DeepstreamSolution,dst=/DeepstreamSolution deepstreamsolutiondocker
-
+sudo docker run --gpus all -it --rm --net=host --privileged -v /tmp/.X11-unix:/tmp/.X11-unix -e DISPLAY=$DISPLAY --mount type=bind,src=/home/colin/Deepstream/DeepstreamSolution,dst=/DeepstreamSolution cpeeris/deepstreamsolutiondocker
 
 1) Running the nvidia deepstream docker. 
 
@@ -84,5 +83,27 @@ Step 5: Log in to MySQL Server
 sudo mysql -u root
 
 
-delete everythin beyond here:
+5) Install RabbitMQ
+
+Step 1: Install Erlang
+
+sudo apt update
+sudo apt install curl software-properties-common apt-transport-https lsb-release
+curl -fsSL https://packages.erlang-solutions.com/ubuntu/erlang_solutions.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/erlang.gpg
+echo "deb https://packages.erlang-solutions.com/ubuntu $(lsb_release -cs) contrib" | sudo tee /etc/apt/sources.list.d/erlang.list
+sudo apt update
+sudo apt install erlang
+
+Step 2: Add RabbitMQ Repository to Ubuntu
+
+curl -s https://packagecloud.io/install/repositories/rabbitmq/rabbitmq-server/script.deb.sh | sudo bash
+
+Step 3: Install RabbitMQ Server 
+sudo apt update
+sudo apt install rabbitmq-server
+systemctl status rabbitmq-server.service
+systemctl is-enabled rabbitmq-server.service
+
+If the service is disabled, enable it:
+sudo systemctl enable rabbitmq-server
 
