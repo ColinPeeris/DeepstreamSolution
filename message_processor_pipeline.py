@@ -90,7 +90,7 @@ class SQLDatabaseBuilder:
         
         if not table_created:
             print("create table: " + self.table_name)
-            mycursor.execute("CREATE TABLE " + self.table_name + " (va_filter_name VARCHAR(255), message_str VARCHAR(255))")
+            mycursor.execute("CREATE TABLE " + self.table_name + " (id int, va_filter_name VARCHAR(255), message_str VARCHAR(255))")
 
     def delete_table(self):
         mycursor = self.mydb.cursor(buffered=True)
@@ -101,13 +101,13 @@ class SQLDatabaseBuilder:
             if x[0] == self.table_name:
                 table_created = True
                 break
-        
+
         if table_created:
             print("delete table: " + self.table_name)
             sql = "DROP TABLE " + self.table_name
             mycursor.execute(sql)
 
-    def read_table(self):
+    def get_number_of_entries(self):
         mycursor = self.mydb.cursor(buffered=True)
         mycursor.execute("SHOW TABLES")
 
@@ -115,11 +115,32 @@ class SQLDatabaseBuilder:
 
         myresult = mycursor.fetchall()
 
-        for x in myresult:
+        '''for x in myresult:
             print(x)
 
-        print(mycursor.rowcount, "records inserted.")
+        print(mycursor.rowcount, "records inserted.")'''
+        return mycursor.rowcount
 
+    def convert_msg_string_to_dict(self, msg_string : str):
+        return json.loads(msg_string)
+
+    def write_to_table(self, va_output):
+        mycursor = self.mydb.cursor()
+
+        for filter_name in va_output:
+            id = self.get_number_of_entries() + 1
+            print(filter_name)
+            sql = "INSERT INTO " + self.table_name + " (id, va_filter_name, message_str) VALUES (%s, %s, %s)"
+            val = (id, filter_name, va_output[filter_name])
+            mycursor.execute(sql, val)
+
+            if filter_name == 'VehicleMonitorFilter':
+                message_dict = self.convert_msg_string_to_dict(va_output[filter_name])
+                self.update_vacancy(message_dict['direction'])
+        
+        self.mydb.commit()
+
+    # the next 2 functions are specific to VehicleMonitorFilter. They should be moved later
     def update_vacancy(self, direction_of_vehicle):
         if direction_of_vehicle == self.direction_of_vehicles_entering: # someone is entering the lot
             self.number_of_vacancies_in_lot -= 1
@@ -127,17 +148,6 @@ class SQLDatabaseBuilder:
         if direction_of_vehicle == self.direction_of_vehicles_exiting: # someone is exiting the lot
             self.number_of_vacancies_in_lot += 1
             self.number_of_cars_in_lot -= 1
-
-    def write_to_table(self, va_output):
-        mycursor = self.mydb.cursor()
-
-        for filter_name in va_output:
-            print(filter_name)
-            sql = "INSERT INTO " + self.table_name + " (va_filter_name, message_str) VALUES (%s, %s)"
-            val = (filter_name, va_output[filter_name])
-            mycursor.execute(sql, val)
-        
-        self.mydb.commit()
 
     def get_vacancy(self):
         return self.number_of_vacancies_in_lot
@@ -161,7 +171,6 @@ class MessageProcessorBuilder:
             va_output= json.loads(body.decode())
             print(va_output)
             self.sql_database.write_to_table(va_output)
-            self.sql_database.read_table()
 
             vacancy = self.sql_database.get_vacancy()
             message = "No message. An error has occured"
@@ -171,6 +180,7 @@ class MessageProcessorBuilder:
                  message = "There is " + str(vacancy) + " lots in the parking lot"
             elif vacancy > 1:
                 message = "There are " + str(vacancy) + " lots in the parking lot"
+            self.telegramSender.update_message(message)
 
         self.channel.basic_consume(queue='deepstreamSolution', on_message_callback=callback, auto_ack=True)
     
