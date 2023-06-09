@@ -1,14 +1,7 @@
-import os
 import sys
-sys.path.append('/opt/nvidia/deepstream/deepstream/sources/deepstream_python_apps/apps/')
 import gi
 import tempfile
 import shutil
-
-gi.require_version('Gst', '1.0')
-from gi.repository import GLib, Gst
-from common.bus_call import bus_call
-
 
 from Modules.video_source_builder import VideoSourceBuilder
 from Modules.inference_engine_builder import InferenceEngineBuilder
@@ -17,9 +10,14 @@ from Modules.va_filter_builder import VAFilterBuilder
 from Modules.tracker_builder import TrackerBuilder
 from Utils.config import Config
 
+sys.path.append('/opt/nvidia/deepstream/deepstream/sources/deepstream_python_apps/apps/')
+gi.require_version('Gst', '1.0')
+from gi.repository import GLib, Gst                                     # noqa: E402
+from common.bus_call import bus_call                                    # noqa: E402
+
+
 class PipelineBuilder:
     def __init__(self):
-        #config_file_name = 'pipelineConfig.json'
         config_file_name = 'detector_tracker_classifier.json'
         temp_directory = tempfile.mkdtemp(dir=".")
         config = Config(config_file_name, temp_directory)
@@ -37,7 +35,7 @@ class PipelineBuilder:
                                             inference_engine=inference_engine.get_last_inference_engine(),
                                             config=config.get_config())
         VAFilterBuilder(pipeline_sink_pad=pipeline_sink.get_pipeline_sink_pad(), config=config.get_config())
-        
+
         self.create_event_loop(self.pipeline)
         shutil.rmtree(temp_directory)
 
@@ -65,7 +63,7 @@ class PipelineBuilder:
         self.pipeline.set_state(Gst.State.PLAYING)
         try:
             self.loop.run()
-        except:
+        except Exception:
             pass
         # cleanup
         self.pipeline.set_state(Gst.State.NULL)

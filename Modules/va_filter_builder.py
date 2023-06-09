@@ -2,19 +2,19 @@
 import sys
 import pyds
 import time
-import pika #pip install pika-1.3.1
-import json #pip install jsonlib-python3-1.6.1
-from enum import Enum
+import pika     # pip install pika-1.3.1
+import json     # pip install jsonlib-python3-1.6.1
 from typing import Dict
 from Modules.VAFilters.VehicleMonitorFilter import VehicleMonitorFilter
 from Modules.Utilities.roi import Point
 
-start=time.time()
-from gi.repository import GLib, Gst
+from gi.repository import Gst
+start = time.time()
 
 available_va_filters = {
     'VehicleMonitorFilter': VehicleMonitorFilter()
 }
+
 
 class ObjInfo:
     def __init__(self, left, top, width, height, trackerID, objectLabel, classifierLabels):
@@ -25,76 +25,78 @@ class ObjInfo:
         self.trackerID = trackerID
         self.objectLabel = objectLabel
         self.classifierLabels = classifierLabels
-    
+
     def get_center_point(self) -> Point:
-        return Point(x = self.left + self.width / 2, y = self.top + self.height / 2)
-    
+        return Point(x=self.left + self.width / 2, y=self.top + self.height / 2)
+
     def get_object_label(self):
         return self.objectLabel
-    
+
     def get_object_classification(self):
         return self.classifierLabels
-    
+
     def get_trackerID(self):
         return self.trackerID
+
 
 class FrameMetadata:
     def __init__(self, frame, frame_number):
         self.objList = []
         self.frame = frame
         self.frame_number = frame_number
-        self.va_output = {} # this should be a dictionary: {'filter_name' : 'message_string'}
+        self.va_output = {}     # this should be a dictionary: {'filter_name' : 'message_string'}
 
-    def add_object(self, objInfo : ObjInfo):
+    def add_object(self, objInfo: ObjInfo):
         self.objList.append(objInfo)
-    
+
     def get_object_list(self):
         return self.objList
-    
-    def get_frame_resolution(self): 
+
+    def get_frame_resolution(self):
         # returns heigth, width
         return self.frame.shape[0], self.frame.shape[1]
 
     def get_frame(self):
         return self.frame
-    
-    def convert_dict_to_msg_string(self, metadata : Dict):
+
+    def convert_dict_to_msg_string(self, metadata: Dict):
         return json.dumps(metadata)
 
-    def convert_msg_string_to_dict(self, msg_string : str):
+    def convert_msg_string_to_dict(self, msg_string: str):
         return json.loads(msg_string)
 
-    def set_va_output(self, filter_name, filter_metadata : Dict):
+    def set_va_output(self, filter_name, filter_metadata: Dict):
         self.va_output[filter_name] = self.convert_dict_to_msg_string(filter_metadata)
-    
+
     def get_va_output(self):
         return self.va_output
+
 
 class VAFilterBuilder:
     def __init__(self, pipeline_sink_pad, config):
         self.va_filter_list = []
         self.create_VAFilters(pipeline_sink_pad, config)
 
-    def convert_msg_string_to_dict(self, msg_string : str):
+    def convert_msg_string_to_dict(self, msg_string: str):
         return json.loads(msg_string)
 
-    def get_classifier_data(self, obj_meta): 
+    def get_classifier_data(self, obj_meta):
         classifier_data = []
         # Only vehicle supports secondary inference
         cls_meta = obj_meta.classifier_meta_list
         while cls_meta is not None:
             cls = pyds.NvDsClassifierMeta.cast(cls_meta.data)
             # type of pyds.GList
-            info = cls.label_info_list  
+            info = cls.label_info_list
             while info is not None:
                 label_meta = pyds.glist_get_nvds_label_info(info.data)
                 classifier_data.append(label_meta.result_label)
                 try:
-                    info=info.next
+                    info = info.next
                 except StopIteration:
                     break
             try:
-                cls_meta=cls_meta.next
+                cls_meta = cls_meta.next
             except StopIteration:
                 break
         return classifier_data
@@ -102,7 +104,6 @@ class VAFilterBuilder:
     def va_filter_probe(self, pad, info, u_data):
         frame_number = 0
         # Intiallizing object counter with 0.
-        num_rects = 0
         gst_buffer = info.get_buffer()
         if not gst_buffer:
             print("Unable to get GstBuffer ")
@@ -125,9 +126,8 @@ class VAFilterBuilder:
                 break
 
             frame_number = frame_meta.frame_num
-            frame_metadata = FrameMetadata(frame = pyds.get_nvds_buf_surface(hash(gst_buffer), frame_meta.batch_id), 
-                                           frame_number = frame_number)
-            num_rects = frame_meta.num_obj_meta
+            frame_metadata = FrameMetadata(frame=pyds.get_nvds_buf_surface(hash(gst_buffer), frame_meta.batch_id),
+                                           frame_number=frame_number)
             l_obj = frame_meta.obj_meta_list
             while l_obj is not None:
                 try:
@@ -136,9 +136,9 @@ class VAFilterBuilder:
                 except StopIteration:
                     break
 
-                objInfo = ObjInfo(top=obj_meta.rect_params.top, 
-                                  left=obj_meta.rect_params.left, 
-                                  width=obj_meta.rect_params.width, 
+                objInfo = ObjInfo(top=obj_meta.rect_params.top,
+                                  left=obj_meta.rect_params.left,
+                                  width=obj_meta.rect_params.width,
                                   height=obj_meta.rect_params.height,
                                   trackerID=obj_meta.object_id,
                                   objectLabel=obj_meta.obj_label,
@@ -156,30 +156,18 @@ class VAFilterBuilder:
             display_meta = pyds.nvds_acquire_display_meta_from_pool(batch_meta)
             display_meta.num_labels = 1
             py_nvosd_text_params = display_meta.text_params[0]
-            # Setting display text to be shown on screen
-            # Note that the pyds module allocates a buffer for the string, and the
-            # memory will not be claimed by the garbage collector.
-            # Reading the display_text field here will return the C address of the
-            # allocated string. Use pyds.get_string() to get the string content.
-            #py_nvosd_text_params.display_text = "Frame Number={} Number of Objects={} Vehicle_count={} Person_count={}".format(
-            #    frame_number, num_rects, obj_counter[PGIE_CLASS_ID_VEHICLE], obj_counter[PGIE_CLASS_ID_PERSON])
-            #for obj in frame_metadata.get_object_list():
-            #    if obj.get_object_label() == 'Car':
-            #        if obj.get_object_classification() != []:
-            #            print(obj.get_object_classification())
-            #self.carparkOccupancyFilter.carpark_vacancy_filter(frame_metadata)
+
             for va_filter in self.va_filter_list:
                 va_filter.run_filter(frame_metadata)
-            
+
             # get va output
-            va_output = frame_metadata.get_va_output()
+            '''va_output = frame_metadata.get_va_output()
             if len(va_output) > 0:
-                self.send_metadata(va_output)
+                self.send_metadata(va_output)'''
 
             '''for filter_name in va_output:
                 print(filter_name)
                 metadata = self.convert_msg_string_to_dict(va_output[filter_name])
-                
                 for key in metadata:
                     print(metadata[key])'''
 
@@ -198,7 +186,7 @@ class VAFilterBuilder:
             # set(red, green, blue, alpha); set to Black
             py_nvosd_text_params.text_bg_clr.set(0.0, 0.0, 0.0, 1.0)
             # Using pyds.get_string() to get display_text as string
-            #print(pyds.get_string(py_nvosd_text_params.display_text))
+            # print(pyds.get_string(py_nvosd_text_params.display_text))
             pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
             try:
                 l_frame = l_frame.next
@@ -207,14 +195,14 @@ class VAFilterBuilder:
         # past traking meta data
         return Gst.PadProbeReturn.OK
 
-    def send_metadata(self, metadata : Dict):
+    def send_metadata(self, metadata: Dict):
         connection = pika.BlockingConnection(
-        pika.ConnectionParameters(host='localhost'))
+            pika.ConnectionParameters(host='localhost'))
         channel = connection.channel()
 
         channel.queue_declare(queue='deepstreamSolution')
 
-        json_object = json.dumps(metadata, indent = 4) 
+        json_object = json.dumps(metadata, indent=4)
         channel.basic_publish(exchange='', routing_key='deepstreamSolution', body=json_object)
 
         connection.close()
@@ -228,7 +216,8 @@ class VAFilterBuilder:
             sys.stderr.write(" Unable to get sink pad of nvosd \n")
 
         for va_filter_name in config['va_filters']:
-            assert va_filter_name in available_va_filters, f'{va_filter_name} is not in: {", ".join(list(available_va_filters.keys()))}'
+            assert va_filter_name in available_va_filters, \
+                f'{va_filter_name} is not in: {", ".join(list(available_va_filters.keys()))}'
             self.va_filter_list.append(available_va_filters[va_filter_name])
-    
+
         osdsinkpad.add_probe(Gst.PadProbeType.BUFFER, self.va_filter_probe, 0)

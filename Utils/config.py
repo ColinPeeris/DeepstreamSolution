@@ -1,6 +1,7 @@
 import os
 import json
 
+
 class Config:
     def __init__(self, file_name, temp_directory):
         self.temp_directory = temp_directory
@@ -35,9 +36,7 @@ class Config:
                 if class_atr in inference_engine_config:
                     f.write('[' + class_atr + '] \n')
                     for class_atr_name in inference_engine_config[class_atr]:
-
                         f.write(class_atr_name + "=" + str(inference_engine_config[class_atr][class_atr_name]) + '\n')
-            #self.inference_config_file_list.append((file_name))
             self.config['inference_engines'].append(
                 {
                     "name": inference_engine_config['name'],

@@ -1,8 +1,8 @@
 
 import sys
 import pyds
-from gi.repository import GLib, Gst
-from common.is_aarch_64 import is_aarch64
+from gi.repository import Gst
+
 
 class PipelineSinkBuilder:
     def __init__(self, pipeline, inference_engine, config):
@@ -17,8 +17,8 @@ class PipelineSinkBuilder:
     def get_pipeline_sink_pad(self):
         return self.osdsinkpad
 
-    def create_sink(self, inference_engine, config): # the final one!
-         # Use convertor to convert from NV12 to RGBA as required by nvosd
+    def create_sink(self, inference_engine, config):    # the final one!
+        # Use convertor to convert from NV12 to RGBA as required by nvosd
         nvvidconv = Gst.ElementFactory.make("nvvideoconvert", "convertor")
         if not nvvidconv:
             sys.stderr.write(" Unable to create nvvidconv \n")
@@ -32,10 +32,10 @@ class PipelineSinkBuilder:
         if not tee:
             sys.stderr.write(" Unable to create tee \n")
 
-        # changing the memory management to cuda_unified. 
-        # NVIDIA mentions this in the documentation for pyds.get_nvds_buf_surface. 
+        # changing the memory management to cuda_unified.
+        # NVIDIA mentions this in the documentation for pyds.get_nvds_buf_surface.
         # We add this so that we can use the get_nvds_buf_surface call
-        mem_type = int(pyds.NVBUF_MEM_CUDA_UNIFIED) 
+        mem_type = int(pyds.NVBUF_MEM_CUDA_UNIFIED)
         nvvidconv.set_property("nvbuf-memory-type", mem_type)
 
         self.pipeline.add(nvvidconv)
@@ -46,7 +46,7 @@ class PipelineSinkBuilder:
         nvvidconv.link(nvosd)
         nvosd.link(tee)
 
-        #if (msgconv is not None) and (msgbroker is not None):
+        # if (msgconv is not None) and (msgbroker is not None):
         #    queue_msg = self.link_tee_to_queue(tee, "nvtee-que1")
         #    queue_msg.link(msgconv)
         #    msgconv.link(msgbroker)
@@ -81,13 +81,11 @@ class PipelineSinkBuilder:
         sink = Gst.ElementFactory.make("fakesink", "fakesink")
         if not sink:
             sys.stderr.write(" Unable to create fakesink \n")
-        
+
         self.pipeline.add(sink)
         queue_fake_sink.link(sink)
-        
 
     def add_file_sink(self, queue_file_src):
-        print("add file sink")
         # Create another Converter
         nvvidconv2 = Gst.ElementFactory.make("nvvideoconvert", "convertor2")
         if not nvvidconv2:
@@ -118,8 +116,7 @@ class PipelineSinkBuilder:
         sink.set_property('location', './output.mp4')
         sink.set_property("sync", 1)
         sink.set_property("async", 0)
-        
-        
+
         self.pipeline.add(nvvidconv2)
         self.pipeline.add(capsfilter)
         self.pipeline.add(encoder)

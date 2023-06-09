@@ -1,6 +1,7 @@
 
 import sys
-from gi.repository import GLib, Gst
+from gi.repository import Gst
+
 
 class InferenceEngineBuilder:
     def __init__(self, pipeline, streammux, tracker, config):
@@ -42,7 +43,7 @@ class InferenceEngineBuilder:
                     self.inference_engines[index].link(tracker)
                     print("link inference engine " + str(index) + " to tracker engine")
             else:
-                if (tracker is not None) and (index -1 == 0):
+                if (tracker is not None) and (index - 1 == 0):
                     tracker.link(self.inference_engines[index])
                     print("link tracker engine to inference engine " + str(index))
                 else:

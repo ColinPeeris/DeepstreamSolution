@@ -1,12 +1,13 @@
 
 import sys
-from gi.repository import GLib, Gst
+from gi.repository import Gst
+
 
 class VideoSourceBuilder():
     def __init__(self, pipeline, config):
         self.streammux = None
         filename = config['video_source']['filename']
-        streammux = self.create_source(pipeline, filename=filename)
+        self.create_source(pipeline, filename=filename)
 
     def get_stream_mux(self):
         return self.streammux

@@ -1,5 +1,6 @@
 import sys
-from gi.repository import GLib, Gst
+from gi.repository import Gst
+
 
 class TrackerBuilder:
     def __init__(self, pipeline, config):
