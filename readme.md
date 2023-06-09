@@ -20,7 +20,7 @@ mysql --version
 
 Step 3: Securing MySQL
 sudo mysql_secure_installation
-- enter and renter password (we use Password)
+- enter and renter password (we use Password!23)
 
 Step 4: Check if MySQL Service Is Running
 sudo systemctl status mysql

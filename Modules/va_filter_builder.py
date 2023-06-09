@@ -161,9 +161,9 @@ class VAFilterBuilder:
                 va_filter.run_filter(frame_metadata)
 
             # get va output
-            '''va_output = frame_metadata.get_va_output()
+            va_output = frame_metadata.get_va_output()
             if len(va_output) > 0:
-                self.send_metadata(va_output)'''
+                self.send_metadata(va_output)
 
             '''for filter_name in va_output:
                 print(filter_name)

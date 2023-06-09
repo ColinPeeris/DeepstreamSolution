@@ -57,7 +57,7 @@ class SQLDatabaseBuilder:
         self.mydb = mysql.connector.connect(
             host="localhost",
             user="root",
-            password="Password",
+            password="Password!23",
             database=self.database_name
         )
 
@@ -70,7 +70,7 @@ class SQLDatabaseBuilder:
         mydb_to_create = mysql.connector.connect(
             host="localhost",
             user="root",
-            password="Password"
+            password="Password!23"
         )
         mycursor = mydb_to_create.cursor(buffered=True)
         mycursor.execute("SHOW DATABASES;")
