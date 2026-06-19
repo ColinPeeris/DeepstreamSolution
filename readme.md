@@ -1,12 +1,21 @@
 Setting up the environment:
 
-1) Before running the nvidia docker, you'll need to install NVIDIA Container Toolkit. 
+1) Before running the nvidia docker, you'll need to install NVIDIA Container Toolkit.
 Refer to this page: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#docker
 
 2) Then run the following commands to run my docker:
 
-xhost +
-sudo docker run --gpus all -it --rm --net=host --privileged -v /tmp/.X11-unix:/tmp/.X11-unix -e DISPLAY=$DISPLAY --mount type=bind,src=<path/to/DeepstreamSolution>,dst=/DeepstreamSolution cpeeris/deepstreamsolutiondocker
+# Allow local root access to the X server
+xhost +local:root
+
+# Run the container
+sudo docker run --gpus all -it --rm \
+  --net=host \
+  --privileged \
+  -v /tmp/.X11-unix:/tmp/.X11-unix \
+  -e DISPLAY=$DISPLAY \
+  --mount type=bind,src="/absolute/path/to/DeepstreamSolution",dst=/DeepstreamSolution \
+  cpeeris/deepstreamsolutiondocker
 
 3) Setup mysql (https://phoenixnap.com/kb/install-mysql-ubuntu-20-04)
 
@@ -44,7 +53,7 @@ Step 2: Add RabbitMQ Repository to Ubuntu
 
 curl -s https://packagecloud.io/install/repositories/rabbitmq/rabbitmq-server/script.deb.sh | sudo bash
 
-Step 3: Install RabbitMQ Server 
+Step 3: Install RabbitMQ Server
 sudo apt update
 sudo apt install rabbitmq-server
 systemctl status rabbitmq-server.service
