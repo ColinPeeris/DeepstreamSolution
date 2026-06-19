@@ -1,0 +1,17 @@
+# Python bytecode (ignores __pycache__ folders everywhere)
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C/C++ compiled outputs (common in DeepStream custom plugins)
+*.o
+*.so
+*.out
+
+# IDEs and editors
+.vscode/
+.idea/
+.DS_Store
+
+# Local configuration / environment files
+.env
