@@ -5,7 +5,10 @@ from Modules.pipeline_builder import PipelineBuilder
 
 
 def main():
-    pipeline = PipelineBuilder()
+    if len(sys.argv) < 2:
+        sys.stderr.write("Usage: python pipeline_launcher.py <config_file.json>\n")
+        return 1
+    pipeline = PipelineBuilder(config_file_name=sys.argv[1])
     pipeline.run()
 
 

@@ -1,6 +1,6 @@
 {
   "video_source" : {
-    "filename" : "/opt/nvidia/deepstream/deepstream-6.1/samples/streams/sample_720p.h264"
+    "filename" : "/opt/nvidia/deepstream/deepstream/samples/streams/sample_720p.h264"
   },
   "inference_engines" : [
     {
@@ -8,11 +8,11 @@
       "property" : {
         "gpu-id": 0,
         "net-scale-factor": 0.0039215697906911373,
-        "model-file": "/opt/nvidia/deepstream/deepstream-6.1/samples/models/Primary_Detector/resnet10.caffemodel",
-        "proto-file": "/opt/nvidia/deepstream/deepstream-6.1/samples/models/Primary_Detector/resnet10.prototxt",
-        "model-engine-file": "/opt/nvidia/deepstream/deepstream-6.1/samples/models/Primary_Detector/resnet10.caffemodel_b1_gpu0_int8.engine",
-        "labelfile-path": "/opt/nvidia/deepstream/deepstream-6.1/samples/models/Primary_Detector/labels.txt",
-        "int8-calib-file": "/opt/nvidia/deepstream/deepstream-6.1/samples/models/Primary_Detector/cal_trt.bin",
+        "model-file": "/opt/nvidia/deepstream/deepstream/samples/models/Primary_Detector/resnet10.caffemodel",
+        "proto-file": "/opt/nvidia/deepstream/deepstream/samples/models/Primary_Detector/resnet10.prototxt",
+        "model-engine-file": "/opt/nvidia/deepstream/deepstream/samples/models/Primary_Detector/resnet10.caffemodel_b1_gpu0_int8.engine",
+        "labelfile-path": "/opt/nvidia/deepstream/deepstream/samples/models/Primary_Detector/labels.txt",
+        "int8-calib-file": "/opt/nvidia/deepstream/deepstream/samples/models/Primary_Detector/cal_trt.bin",
         "force-implicit-batch-dim": 1,
         "batch-size": 1,
         "network-mode": 1,
@@ -34,12 +34,12 @@
       "property" : {
         "gpu-id": 0,
         "net-scale-factor": 1,
-        "model-file": "/opt/nvidia/deepstream/deepstream-6.1/samples/models/Secondary_CarColor/resnet18.caffemodel",
-        "proto-file": "/opt/nvidia/deepstream/deepstream-6.1/samples/models/Secondary_CarColor/resnet18.prototxt",
-        "model-engine-file": "/opt/nvidia/deepstream/deepstream-6.1/samples/models/Secondary_CarColor/resnet18.caffemodel_b16_gpu0_int8.engine",
-        "mean-file": "/opt/nvidia/deepstream/deepstream-6.1/samples/models/Secondary_CarColor/mean.ppm",
-        "labelfile-path": "/opt/nvidia/deepstream/deepstream-6.1/samples/models/Secondary_CarColor/labels.txt",
-        "int8-calib-file": "/opt/nvidia/deepstream/deepstream-6.1/samples/models/Secondary_CarColor/cal_trt.bin",
+        "model-file": "/opt/nvidia/deepstream/deepstream/samples/models/Secondary_CarColor/resnet18.caffemodel",
+        "proto-file": "/opt/nvidia/deepstream/deepstream/samples/models/Secondary_CarColor/resnet18.prototxt",
+        "model-engine-file": "/opt/nvidia/deepstream/deepstream/samples/models/Secondary_CarColor/resnet18.caffemodel_b16_gpu0_int8.engine",
+        "mean-file": "/opt/nvidia/deepstream/deepstream/samples/models/Secondary_CarColor/mean.ppm",
+        "labelfile-path": "/opt/nvidia/deepstream/deepstream/samples/models/Secondary_CarColor/labels.txt",
+        "int8-calib-file": "/opt/nvidia/deepstream/deepstream/samples/models/Secondary_CarColor/cal_trt.bin",
         "force-implicit-batch-dim": 1,
         "batch-size": 16,
         "network-mode": 1,
@@ -63,12 +63,12 @@
       "property" : {
         "gpu-id": 0,
         "net-scale-factor": 1,
-        "model-file": "/opt/nvidia/deepstream/deepstream-6.1/samples/models/Secondary_CarMake/resnet18.caffemodel",
-        "proto-file": "/opt/nvidia/deepstream/deepstream-6.1/samples/models/Secondary_CarMake/resnet18.prototxt",
-        "model-engine-file": "/opt/nvidia/deepstream/deepstream-6.1/samples/models/Secondary_CarMake/resnet18.caffemodel_b16_gpu0_int8.engine",
-        "mean-file": "/opt/nvidia/deepstream/deepstream-6.1/samples/models/Secondary_CarMake/mean.ppm",
-        "labelfile-path": "/opt/nvidia/deepstream/deepstream-6.1/samples/models/Secondary_CarMake/labels.txt",
-        "int8-calib-file": "/opt/nvidia/deepstream/deepstream-6.1/samples/models/Secondary_CarMake/cal_trt.bin",
+        "model-file": "/opt/nvidia/deepstream/deepstream/samples/models/Secondary_CarMake/resnet18.caffemodel",
+        "proto-file": "/opt/nvidia/deepstream/deepstream/samples/models/Secondary_CarMake/resnet18.prototxt",
+        "model-engine-file": "/opt/nvidia/deepstream/deepstream/samples/models/Secondary_CarMake/resnet18.caffemodel_b16_gpu0_int8.engine",
+        "mean-file": "/opt/nvidia/deepstream/deepstream/samples/models/Secondary_CarMake/mean.ppm",
+        "labelfile-path": "/opt/nvidia/deepstream/deepstream/samples/models/Secondary_CarMake/labels.txt",
+        "int8-calib-file": "/opt/nvidia/deepstream/deepstream/samples/models/Secondary_CarMake/cal_trt.bin",
         "force-implicit-batch-dim": 1,
         "batch-size": 16,
         "network-mode": 1,
@@ -91,7 +91,7 @@
   "va_filters" : [
     "VehicleMonitorFilter"
   ],
-  "sink_type" : "fakesink",
+  "sink_type" : "filesink",
   "tracker" : {
     "tracker-width": 640,
     "tracker-height": 384,

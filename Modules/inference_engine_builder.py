@@ -37,15 +37,15 @@ class InferenceEngineBuilder:
         for index in range(len(self.inference_engines)):
             if first_model:
                 first_model = False
-                streammux.link(self.inference_engines[index])
-                print("link streammux to inference engine " + str(index))
+                ret = streammux.link(self.inference_engines[index])
+                print("link streammux to inference engine " + str(index) + " -> " + str(ret))
                 if tracker is not None:
-                    self.inference_engines[index].link(tracker)
-                    print("link inference engine " + str(index) + " to tracker engine")
+                    ret = self.inference_engines[index].link(tracker)
+                    print("link inference engine " + str(index) + " to tracker engine -> " + str(ret))
             else:
                 if (tracker is not None) and (index - 1 == 0):
-                    tracker.link(self.inference_engines[index])
-                    print("link tracker engine to inference engine " + str(index))
+                    ret = tracker.link(self.inference_engines[index])
+                    print("link tracker engine to inference engine " + str(index) + " -> " + str(ret))
                 else:
-                    self.inference_engines[index-1].link(self.inference_engines[index])
-                    print("link inference engine " + str(index-1) + " to inference engine " + str(index))
+                    ret = self.inference_engines[index-1].link(self.inference_engines[index])
+                    print("link inference engine " + str(index-1) + " to inference engine " + str(index) + " -> " + str(ret))

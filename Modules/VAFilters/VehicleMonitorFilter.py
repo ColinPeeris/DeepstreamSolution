@@ -121,7 +121,7 @@ class VehicleMonitorFilter:
                         #                                           frame_meta = frame_meta,
                         #                                           points = entry_exit_points)
                         print(metadata)
-                        if object.get_object_label() == 'Car':
+                        if object.get_object_label() == 'Car' or object.get_object_label() == 'car':
                             if object.get_object_classification() != []:
                                 print(object.get_object_classification())
                         # self.save_snapshot(file_name = "ROIentryexit_frame_" +

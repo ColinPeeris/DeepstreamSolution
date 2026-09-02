@@ -17,8 +17,7 @@ from common.bus_call import bus_call                                    # noqa: 
 
 
 class PipelineBuilder:
-    def __init__(self):
-        config_file_name = 'detector_tracker_classifier.json'
+    def __init__(self, config_file_name):
         temp_directory = tempfile.mkdtemp(dir=".")
         config = Config(config_file_name, temp_directory)
         # Standard GStreamer initialization

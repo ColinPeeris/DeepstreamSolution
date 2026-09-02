@@ -14,8 +14,8 @@ sudo docker run --gpus all -it --rm \
   --privileged \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
   -e DISPLAY=$DISPLAY \
-  --mount type=bind,src="/absolute/path/to/DeepstreamSolution",dst=/DeepstreamSolution \
-  cpeeris/deepstreamsolutiondocker
+  --mount type=bind,src="/absolute/path/to/DeepstreamSolution",target=/workspace \
+  cpeeris/deepstreamsolutiondocker:8.0  # 6.1.1 and 9.1 also supported
 
 3) Setup mysql (https://phoenixnap.com/kb/install-mysql-ubuntu-20-04)
 

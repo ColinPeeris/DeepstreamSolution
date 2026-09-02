@@ -1,0 +1,91 @@
+{
+  "video_source" : {
+    "filename" : "/opt/nvidia/deepstream/deepstream/samples/streams/sample_720p.h264"
+  },
+  "inference_engines" : [
+    {
+      "name" : "pgie_detector_1",
+      "property" : {
+        "gpu-id": 0,
+        "net-scale-factor": 0.0039215697906911373,
+        "onnx-file": "/opt/nvidia/deepstream/deepstream/samples/models/Primary_Detector/resnet18_trafficcamnet_pruned.onnx",
+        "model-engine-file": "/opt/nvidia/deepstream/deepstream/samples/models/Primary_Detector/resnet18_trafficcamnet_pruned.onnx_b1_gpu0_fp16.engine",
+        "labelfile-path": "/opt/nvidia/deepstream/deepstream/samples/models/Primary_Detector/labels.txt",
+        "batch-size": 1,
+        "network-mode": 2,
+        "process-mode": 1,
+        "model-color-format": 0,
+        "num-detected-classes": 4,
+        "interval": 0,
+        "gie-unique-id": 1,
+        "output-blob-names": "output_bbox/BiasAdd:0;output_cov/Sigmoid:0"
+      },
+      "class-attrs-all" : {
+        "pre-cluster-threshold": 0.2,
+        "eps": 0.2,
+        "group-threshold": 1
+      }
+    },
+    {
+      "name" : "sgie_classifier_2",
+      "property" : {
+        "gpu-id": 0,
+        "net-scale-factor": 1,
+        "onnx-file": "/opt/nvidia/deepstream/deepstream/samples/models/Secondary_VehicleMake/resnet18_vehiclemakenet_pruned.onnx",
+        "model-engine-file": "/opt/nvidia/deepstream/deepstream/samples/models/Secondary_VehicleMake/resnet18_vehiclemakenet_pruned.onnx_b16_gpu0_fp16.engine",
+        "labelfile-path": "/opt/nvidia/deepstream/deepstream/samples/models/Secondary_VehicleMake/labels.txt",
+        "batch-size": 16,
+        "network-mode": 2,
+        "input-object-min-width": 64,
+        "input-object-min-height": 64,
+        "process-mode": 2,
+        "model-color-format": 1,
+        "gpu-id": 0,
+        "gie-unique-id": 2,
+        "operate-on-gie-id": 1,
+        "operate-on-class-ids": 0,
+        "is-classifier": 1,
+        "output-blob-names": "predictions/Softmax:0",
+        "classifier-async-mode": 1,
+        "classifier-threshold": 0.51,
+        "process-mode": 2
+      }
+    },
+    {
+      "name" : "sgie_classifier_3",
+      "property" : {
+        "gpu-id": 0,
+        "net-scale-factor": 1,
+        "onnx-file": "/opt/nvidia/deepstream/deepstream/samples/models/Secondary_VehicleTypes/resnet18_vehicletypenet_pruned.onnx",
+        "model-engine-file": "/opt/nvidia/deepstream/deepstream/samples/models/Secondary_VehicleTypes/resnet18_vehicletypenet_pruned.onnx_b16_gpu0_fp16.engine",
+        "labelfile-path": "/opt/nvidia/deepstream/deepstream/samples/models/Secondary_VehicleTypes/labels.txt",
+        "batch-size": 16,
+        "network-mode": 2,
+        "input-object-min-width": 64,
+        "input-object-min-height": 64,
+        "process-mode": 2,
+        "model-color-format": 1,
+        "gpu-id": 0,
+        "gie-unique-id": 3,
+        "operate-on-gie-id": 1,
+        "operate-on-class-ids": 0,
+        "is-classifier": 1,
+        "output-blob-names": "predictions/Softmax:0",
+        "classifier-async-mode": 1,
+        "classifier-threshold": 0.51,
+        "process-mode": 2
+      }
+    }
+  ],
+  "va_filters" : [
+    "VehicleMonitorFilter"
+  ],
+  "sink_type" : "filesink",
+  "tracker" : {
+    "tracker-width": 640,
+    "tracker-height": 384,
+    "gpu-id": 0,
+    "ll-lib-file": "/opt/nvidia/deepstream/deepstream/lib/libnvds_nvmultiobjecttracker.so",
+    "ll-config-file": "config_tracker_NvDCF_perf.yml"
+  }
+}

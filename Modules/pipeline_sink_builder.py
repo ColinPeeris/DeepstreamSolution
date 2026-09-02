@@ -38,13 +38,25 @@ class PipelineSinkBuilder:
         mem_type = int(pyds.NVBUF_MEM_CUDA_UNIFIED)
         nvvidconv.set_property("nvbuf-memory-type", mem_type)
 
+        # Force RGBA output so pyds.get_nvds_buf_surface works.
+        # Must keep NVMM memory to link with nvdsosd.
+        capsfilter = Gst.ElementFactory.make("capsfilter", "converter_caps")
+        caps = Gst.Caps.from_string("video/x-raw(memory:NVMM), format=RGBA")
+        capsfilter.set_property("caps", caps)
+
         self.pipeline.add(nvvidconv)
+        self.pipeline.add(capsfilter)
         self.pipeline.add(nvosd)
         self.pipeline.add(tee)
 
-        inference_engine.link(nvvidconv)
-        nvvidconv.link(nvosd)
-        nvosd.link(tee)
+        ret = inference_engine.link(nvvidconv)
+        print("link inference engine to nvvidconv -> " + str(ret))
+        ret = nvvidconv.link(capsfilter)
+        print("link nvvidconv -> capsfilter -> " + str(ret))
+        ret = capsfilter.link(nvosd)
+        print("link capsfilter -> nvosd -> " + str(ret))
+        ret = nvosd.link(tee)
+        print("link nvosd -> tee -> " + str(ret))
 
         # if (msgconv is not None) and (msgbroker is not None):
         #    queue_msg = self.link_tee_to_queue(tee, "nvtee-que1")
@@ -72,7 +84,8 @@ class PipelineSinkBuilder:
         tee_pad = tee.get_request_pad('src_%u')
         if not tee_pad:
             sys.stderr.write("Unable to get request pads for file source \n")
-        tee_pad.link(queue_pad)
+        ret = tee_pad.link(queue_pad)
+        print("Link Tee to Queue -> " + str(ret))
 
         return queue
 
