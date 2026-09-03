@@ -33,7 +33,8 @@ class PipelineBuilder:
         pipeline_sink = PipelineSinkBuilder(pipeline=self.pipeline,
                                             inference_engine=inference_engine.get_last_inference_engine(),
                                             config=config.get_config())
-        VAFilterBuilder(pipeline_sink_pad=pipeline_sink.get_pipeline_sink_pad(), config=config.get_config())
+        VAFilterBuilder(pipeline_sink_pad=pipeline_sink.get_pipeline_sink_pad(),
+                        config=config.get_config())
 
         self.create_event_loop(self.pipeline)
         shutil.rmtree(temp_directory)

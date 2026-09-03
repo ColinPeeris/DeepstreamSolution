@@ -35,20 +35,24 @@
         "model-engine-file": "/workspace/models/resnet18_3d_rgb_hmdb5_32.etlt_b4_gpu0_fp16.engine",
         "labelfile-path": "/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/deepstream-3d-action-recognition/labels.txt",
         "batch-size": 4,
-        "process-mode": 1,
+        "process-mode": 2,
         "network-mode": 2,
         "gie-unique-id": 2,
         "network-type": 1,
         "input-tensor-from-meta": 1,
-        "output-tensor-meta": 1,
-        "tensor-meta-pool-size": 8
+        "operate-on-gie-id": 1,
+        "operate-on-class-ids": 2,
+        "is-classifier": 1,
+        "classifier-async-mode": 0,
+        "classifier-threshold": 0.0
       },
       "preprocess" : {
         "property" : {
           "gpu-id": 0,
           "enable": 1,
-          "target-unique-ids": 1,
-          "process-on-frame": 1,
+          "target-unique-ids": 2,
+          "operate-on-gie-id": 1,
+          "process-on-frame": 0,
           "network-input-shape": "4;3;32;224;224",
           "network-color-format": 0,
           "network-input-order": 2,
@@ -71,8 +75,8 @@
         },
         "group-0" : {
           "src-ids": 0,
-          "process-on-roi": 1,
-          "roi-params-src-0": "0;0;1280;720"
+          "operate-on-class-ids": 2,
+          "process-on-all-objects": 1
         }
       }
     },
@@ -124,7 +128,8 @@
     }
   ],
   "va_filters" : [
-    "VehicleMonitorFilter"
+    "VehicleMonitorFilter",
+    "ActionMonitorFilter"
   ],
   "sink_type" : "filesink",
   "tracker" : {

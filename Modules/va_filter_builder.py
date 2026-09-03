@@ -6,13 +6,15 @@ import pika     # pip install pika-1.3.1
 import json     # pip install jsonlib-python3-1.6.1
 from typing import Dict
 from Modules.VAFilters.VehicleMonitorFilter import VehicleMonitorFilter
+from Modules.VAFilters.ActionMonitorFilter import ActionMonitorFilter
 from Modules.Utilities.roi import Point
 
 from gi.repository import Gst
 start = time.time()
 
 available_va_filters = {
-    'VehicleMonitorFilter': VehicleMonitorFilter()
+    'VehicleMonitorFilter': VehicleMonitorFilter(),
+    'ActionMonitorFilter': ActionMonitorFilter()
 }
 
 
