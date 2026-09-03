@@ -7,6 +7,7 @@ import json     # pip install jsonlib-python3-1.6.1
 from typing import Dict
 from Modules.VAFilters.VehicleMonitorFilter import VehicleMonitorFilter
 from Modules.VAFilters.ActionMonitorFilter import ActionMonitorFilter
+from Modules.VAFilters.NumberPlateMonitorFilter import NumberPlateMonitorFilter
 from Modules.Utilities.roi import Point
 
 from gi.repository import Gst
@@ -14,12 +15,14 @@ start = time.time()
 
 available_va_filters = {
     'VehicleMonitorFilter': VehicleMonitorFilter(),
-    'ActionMonitorFilter': ActionMonitorFilter()
+    'ActionMonitorFilter': ActionMonitorFilter(),
+    'NumberPlateMonitorFilter': NumberPlateMonitorFilter()
 }
 
 
 class ObjInfo:
-    def __init__(self, left, top, width, height, trackerID, objectLabel, classifierLabels):
+    def __init__(self, left, top, width, height, trackerID, objectLabel, classifierLabels,
+                 component_id=None, parent_tracker_id=None, parent_label=None):
         self.left = left
         self.top = top
         self.width = width
@@ -27,6 +30,9 @@ class ObjInfo:
         self.trackerID = trackerID
         self.objectLabel = objectLabel
         self.classifierLabels = classifierLabels
+        self.component_id = component_id
+        self.parent_tracker_id = parent_tracker_id
+        self.parent_label = parent_label
 
     def get_center_point(self) -> Point:
         return Point(x=self.left + self.width / 2, y=self.top + self.height / 2)
@@ -39,6 +45,15 @@ class ObjInfo:
 
     def get_trackerID(self):
         return self.trackerID
+
+    def get_component_id(self):
+        return self.component_id
+
+    def get_parent_trackerID(self):
+        return self.parent_tracker_id
+
+    def get_parent_label(self):
+        return self.parent_label
 
 
 class FrameMetadata:
@@ -103,6 +118,44 @@ class VAFilterBuilder:
                 break
         return classifier_data
 
+    def _get_parent_tracker_id(self, obj_meta):
+        """Return the tracker id of an object's parent, or ``None``.
+
+        Detector-metadata child objects (e.g. a license plate produced by a
+        secondary LPD detector) are linked to the parent object (the vehicle)
+        via ``obj_meta.parent``. This helper safely reads that parent's id.
+
+        Args:
+            obj_meta: A ``pyds.NvDsObjectMeta`` whose parent to inspect.
+
+        Returns:
+            The parent's ``object_id``, or ``None`` if there is no parent.
+        """
+        try:
+            parent = obj_meta.parent
+            if parent is not None:
+                return parent.object_id
+        except Exception:
+            pass
+        return None
+
+    def _get_parent_label(self, obj_meta):
+        """Return the label of an object's parent, or ``None``.
+
+        Args:
+            obj_meta: A ``pyds.NvDsObjectMeta`` whose parent to inspect.
+
+        Returns:
+            The parent's ``obj_label``, or ``None`` if there is no parent.
+        """
+        try:
+            parent = obj_meta.parent
+            if parent is not None:
+                return parent.obj_label
+        except Exception:
+            pass
+        return None
+
     def va_filter_probe(self, pad, info, u_data):
         frame_number = 0
         # Intiallizing object counter with 0.
@@ -138,13 +191,17 @@ class VAFilterBuilder:
                 except StopIteration:
                     break
 
+                component_id = getattr(obj_meta, 'unique_component_id', None)
                 objInfo = ObjInfo(top=obj_meta.rect_params.top,
                                   left=obj_meta.rect_params.left,
                                   width=obj_meta.rect_params.width,
                                   height=obj_meta.rect_params.height,
                                   trackerID=obj_meta.object_id,
                                   objectLabel=obj_meta.obj_label,
-                                  classifierLabels=self.get_classifier_data(obj_meta=obj_meta))
+                                  classifierLabels=self.get_classifier_data(obj_meta=obj_meta),
+                                  component_id=component_id,
+                                  parent_tracker_id=self._get_parent_tracker_id(obj_meta),
+                                  parent_label=self._get_parent_label(obj_meta))
                 frame_metadata.add_object(objInfo)
 
                 try:

@@ -1,0 +1,152 @@
+================================================================================
+  License Plate Detection (LPD) + License Plate Recognition (LPR) — model guide
+  LPD: resnet18 LPDNet  (lpdnet)   -> LPDNet_usa_pruned_tao5.onnx
+  LPR: LPRNet baseline18 (lprnet)  -> us_lprnet_baseline18_deployable.onnx
+================================================================================
+
+This document explains how the LPD / LPR models were obtained and gives you the
+exact commands to redo it yourself. The source is NVIDIA's official DeepStream
+LPR reference app:  NVIDIA-AI-IOT/deepstream_tao_apps  (deepstream_lpr_app),
+including its download_models.sh which lists the NGC URLs used below.
+
+--------------------------------------------------------------------------------
+WHY .onnx (NOT .etlt) — AND WHY A CUSTOM .so IS ALSO NEEDED
+--------------------------------------------------------------------------------
+- LPD (.onnx): resnet18 trafficcamnet-family detector. DeepStream's gst-nvinfer
+  reads the .onnx directly via  onnx-file=  and builds the TensorRT engine
+  automatically on first run. It is int8-quantized, so it also needs a
+  calibration file (usa_cal_10.1.0.bin) via  int8-calib-file=.
+
+- LPR (.onnx): an OCR-ish network whose output is NOT a normal softmax
+  classifier. Decoding the plate text requires a custom TensorRT output parser:
+  NvDsInferParseCustomNVPlate. So you need BOTH the model AND a small custom
+  C++ parser compiled into  libnvdsinfer_custom_impl_lpr.so  (see STEP 3).
+  The parser reads the dictionary  dict_us.txt  for index->character mapping.
+
+Guest download works (no NGC account / API key) for both models.
+
+--------------------------------------------------------------------------------
+STEP 0 — Start the deepstream docker (as you normally would)
+--------------------------------------------------------------------------------
+    sudo docker run --gpus all -it --rm \
+      --net=host \
+      --privileged \
+      -v /tmp/.X11-unix:/tmp/.X11-unix \
+      -e DISPLAY=$DISPLAY \
+      --mount type=bind,src="/home/colin/src/DeepstreamSolution",target=/workspace \
+      cpeeris/deepstreamsolutiondocker:8.0
+
+    cd /workspace
+
+--------------------------------------------------------------------------------
+STEP 1 — (optional) Inspect what the NGC models actually contain
+--------------------------------------------------------------------------------
+    # LPD (lpdnet, pruned_v2.3.1) -> .onnx + int8 calibration file + label
+    curl -s "https://api.ngc.nvidia.com/v2/models/org/nvidia/team/tao/lpdnet/versions/pruned_v2.3.1/files" \
+      | python3 -m json.tool
+
+    # LPR (lprnet, deployable_onnx_v1.1) -> US + China deployable .onnx
+    curl -s "https://api.ngc.nvidia.com/v2/models/org/nvidia/team/tao/lprnet/versions/deployable_onnx_v1.1/files" \
+      | python3 -m json.tool
+
+  Expected files:
+      LPDNet_usa_pruned_tao5.onnx     936569    (the detection model)
+      usa_cal_10.1.0.bin               7770    (int8 calibration data)
+      us_lprnet_baseline18_deployable.onnx
+      ch_lprnet_baseline18_deployable.onnx    (not used; China plates)
+
+--------------------------------------------------------------------------------
+STEP 2 — Download the LPD + LPR models + support files (guest, no key)
+--------------------------------------------------------------------------------
+    mkdir -p /workspace/models/LP/LPD /workspace/models/LP/LPR
+
+    # ---- LPD ----
+    cd /workspace/models/LP/LPD
+    curl -sL \
+      "https://api.ngc.nvidia.com/v2/models/org/nvidia/team/tao/lpdnet/versions/pruned_v2.3.1/files/LPDNet_usa_pruned_tao5.onnx" \
+      -o LPDNet_usa_pruned_tao5.onnx
+    curl -sL \
+      "https://api.ngc.nvidia.com/v2/models/org/nvidia/team/tao/lpdnet/versions/pruned_v2.3.1/files/usa_cal_10.1.0.bin" \
+      -o usa_cal_10.1.0.bin
+    curl -s \
+      "https://api.ngc.nvidia.com/v2/models/nvidia/tao/lpdnet/versions/pruned_v1.0/files/usa_lpd_label.txt" \
+      -o usa_lpd_label.txt
+
+    # sanity checks
+    ls -la
+    cat usa_lpd_label.txt        # -> single line:  lpd   (class 0)
+    file LPDNet_usa_pruned_tao5.onnx
+
+    # ---- LPR ----
+    cd /workspace/models/LP/LPR
+    curl -sL \
+      "https://api.ngc.nvidia.com/v2/models/org/nvidia/team/tao/lprnet/versions/deployable_onnx_v1.1/files/us_lprnet_baseline18_deployable.onnx" \
+      -o us_lprnet_baseline18_deployable.onnx
+    # dictionary of valid output characters (indices -> characters); the parser
+    # reads this (as dict.txt) plus nvinfer uses it via labelfile-path:
+    curl -s \
+      "https://raw.githubusercontent.com/NVIDIA-AI-IOT/deepstream_tao_apps/master/apps/tao_others/deepstream_lpr_app/dict_us.txt" \
+      -o dict_us.txt
+    # the parser hardcoded-opens "dict.txt" from the CWD, so also place one there:
+    cp /workspace/models/LP/LPR/dict_us.txt /workspace/dict.txt
+
+    ls -la; head -c 60 dict_us.txt
+
+--------------------------------------------------------------------------------
+STEP 3 — Build the LPR custom parser  libnvdsinfer_custom_impl_lpr.so
+--------------------------------------------------------------------------------
+  LPR decoding needs NvDsInferParseCustomNVPlate. Get the source + Makefile from
+  the tao_apps repo, compile it against DeepStream's nvdsinfer.h, and install it
+  into the DeepStream lib dir (your config points at
+  /opt/nvidia/deepstream/deepstream/lib/libnvdsinfer_custom_impl_lpr.so).
+
+    mkdir -p /tmp/lpr_parser && cd /tmp/lpr_parser
+    wget -q \
+      "https://raw.githubusercontent.com/NVIDIA-AI-IOT/deepstream_tao_apps/master/apps/tao_others/deepstream_lpr_app/nvinfer_custom_lpr_parser/nvinfer_custom_lpr_parser.cpp" \
+      -O nvinfer_custom_lpr_parser.cpp
+
+    g++ -Wall -Werror -std=c++11 -shared -fPIC \
+      -I/opt/nvidia/deepstream/deepstream/sources/includes \
+      -o libnvdsinfer_custom_impl_lpr.so nvinfer_custom_lpr_parser.cpp \
+      -Wl,--start-group -lnvinfer -Wl,--end-group
+
+    # install into the DS 8.0 lib dir (and the plain lib dir, since config uses it)
+    cp libnvdsinfer_custom_impl_lpr.so /opt/nvidia/deepstream/deepstream-8.0/lib/
+    cp libnvdsinfer_custom_impl_lpr.so /opt/nvidia/deepstream/deepstream/lib/
+
+--------------------------------------------------------------------------------
+STEP 4 — Run the LPR pipeline once; nvinfer builds the engines automatically
+--------------------------------------------------------------------------------
+    cd /workspace
+    python3 pipeline_launcher.py configs/detector_tracker_classifier_actionRec_lpr_deepstream_8.json
+
+  On the first run you will see nvinfer build both engines:
+      serialize cuda engine to file: ...LPDNet_usa_pruned_tao5.onnx_b16_gpu0_int8.engine
+      serialize cuda engine to file: ...us_lprnet_baseline18_deployable.onnx_b16_gpu0_fp16.engine
+
+  The generated artifacts (git-ignored) live in /workspace/models/LP/LPD|LPR/.
+  You should then see per-vehicle plate output, e.g.:
+      {'vehicleID': 378, 'objLabel': 'car', 'plate': 'CR2', 'primary_plate': 'CR2', ...}
+
+--------------------------------------------------------------------------------
+OPTIONAL — If you DO have an NGC API key, the official way
+--------------------------------------------------------------------------------
+    pip install ngc
+    ngc config set   # paste your API key from https://ngc.nvidia.com/setup/api-key
+
+    ngc registry model download-version org/nvidia/team/tao/lpdnet:pruned_v2.3.1
+    ngc registry model download-version org/nvidia/team/tao/lprnet:deployable_onnx_v1.1
+
+--------------------------------------------------------------------------------
+KEY REFERENCES
+--------------------------------------------------------------------------------
+  LPD model page:     https://ngc.nvidia.com/catalog/models/org:nvidia:team:tao:lpdnet
+  LPR model page:     https://ngc.nvidia.com/catalog/models/org:nvidia:team:tao:lprnet
+  download_models.sh: https://raw.githubusercontent.com/NVIDIA-AI-IOT/deepstream_tao_apps/master/download_models.sh
+  LPR app repo dir:   https://github.com/NVIDIA-AI-IOT/deepstream_tao_apps/tree/master/apps/tao_others/deepstream_lpr_app
+
+  NOTE: the models live under /workspace/models/LP/... and are git-ignored
+  (generated engines). Also remember the LPR parser reads "dict.txt" from the
+  process CWD, hence the /workspace/dict.txt copy in STEP 2.
+
+================================================================================
