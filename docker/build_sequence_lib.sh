@@ -18,11 +18,22 @@
 #
 # Overridable environment variables:
 #   DS_VERSION   DeepStream version (default: 8.0)
-#   CUDA_VER     CUDA toolkit version the Makefile targets (default: 12.8)
+#   CUDA_VER     CUDA toolkit version the Makefile targets. Auto-detected from
+#                /usr/local/cuda if not set (e.g. DS 9.1 ships CUDA 13.2).
+#                Falls back to 12.8 (DS 8.0).
 
 set -euo pipefail
 
 DS_VERSION="${DS_VERSION:-8.0}"
+
+# Auto-detect the CUDA toolkit version from the default /usr/local/cuda symlink,
+# then fall back to the overridable default (12.8, matching DeepStream 8.0).
+# The detected directory name is "cuda-13.2", so strip the "cuda-" prefix to get
+# the bare version CUDA_VER is expected to hold.
+if [ -z "${CUDA_VER:-}" ] && [ -L /usr/local/cuda ]; then
+    _cuda_link="$(readlink -f /usr/local/cuda)"
+    CUDA_VER="${_cuda_link##*cuda-}"
+fi
 CUDA_VER="${CUDA_VER:-12.8}"
 
 # Where the sample build directory lives inside the image.
@@ -65,7 +76,7 @@ cp -f "$SRC_DIR"/sequence_image_process.cpp \
 # --- build -------------------------------------------------------------------
 log "Building libnvds_custom_sequence_preprocess.so (CUDA_VER=${CUDA_VER})"
 make -C "$SAMPLE_DIR" clean            # removes stale *.o and the .so
-CUDA_VER="$CUDA_VER" make -C "$SAMPLE_DIR" all
+CUDA_VER="$CUDA_VER" NVDS_VERSION="$DS_VERSION" make -C "$SAMPLE_DIR" all
 
 # --- install to both lib dirs ------------------------------------------------
 log "Installing libnvds_custom_sequence_preprocess.so"

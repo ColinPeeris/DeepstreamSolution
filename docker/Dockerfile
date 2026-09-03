@@ -119,22 +119,41 @@ RUN EXTRA_FLAG="$(cat /tmp/pip_extra_flag)" && \
     mysql-connector-python \
     requests
 
+# Build and install the patched action-recognition custom sequence library.
+# This is specific to DeepStream 8.0 (the 3D action-recognition sample with the
+# custom sequence preprocess only ships there). The build_sequence_lib.sh script
+# stages the patched source into the sample build dir, compiles
+# libnvds_custom_sequence_preprocess.so, and installs it into both DeepStream lib
+# directories. Build the image from the repo root so the COPY paths below are
+# relative to the repo (e.g. `docker build -f docker/Dockerfile .`).
+COPY custom_sequence_preprocess/ /opt/action-rec-build/custom_sequence_preprocess/
+COPY docker/build_sequence_lib.sh /opt/action-rec-build/docker/build_sequence_lib.sh
+
+RUN chmod +x /opt/action-rec-build/docker/build_sequence_lib.sh && \
+    if [ "$DS_VERSION" = "8.0" ]; then \
+        DS_VERSION=8.0 CUDA_VER=12.8 /opt/action-rec-build/docker/build_sequence_lib.sh; \
+    else \
+        echo "Skipping action-recognition sequence lib build (DeepStream ${DS_VERSION} does not use it)"; \
+    fi && \
+    rm -rf /opt/action-rec-build
+
 # DeepStream 9.1:
-# sudo docker build \
+# sudo docker build -f docker/Dockerfile \
 #   --build-arg DS_VERSION=9.1 \
 #   --build-arg DS_FLAVOR=triton-multiarch \
 #   --build-arg DS_FOLDER=9.1 \
 #   -t deepstreamsolutiondocker:9.1 .
 
-# DeepStream 8.0:
-# sudo docker build \
+# DeepStream 8.0 (also builds and installs the patched action-recognition
+# custom sequence library):
+# sudo docker build -f docker/Dockerfile \
 #   --build-arg DS_VERSION=8.0 \
 #   --build-arg DS_FLAVOR=gc-triton-devel \
 #   --build-arg DS_FOLDER=8.0 \
 #   -t deepstreamsolutiondocker:8.0 .
 
 # DeepStream 6.1.1:
-# sudo docker build \
+# sudo docker build -f docker/Dockerfile \
 #   --build-arg DS_VERSION=6.1.1 \
 #   --build-arg DS_FLAVOR=devel \
 #   --build-arg DS_FOLDER=6.1 \

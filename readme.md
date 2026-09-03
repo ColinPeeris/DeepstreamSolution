@@ -17,6 +17,61 @@ sudo docker run --gpus all -it --rm \
   --mount type=bind,src="/absolute/path/to/DeepstreamSolution",target=/workspace \
   cpeeris/deepstreamsolutiondocker:8.0  # 6.1.1 and 9.1 also supported
 
+## Building the Docker images
+
+The `docker/` folder contains everything needed to build the images from source
+via a single shared `docker/Dockerfile`:
+
+```
+docker/
+  Dockerfile            # shared multi-version build definition
+  build_images.sh       # builds all (or selected) DeepStream images
+  build_sequence_lib.sh # compiles + installs the patched action-recognition
+                        # custom sequence library (used by the DS 8.0 build)
+```
+
+Build all three images (9.1, 8.0, 6.1.1) from the repo root:
+
+```
+sudo ./docker/build_images.sh
+```
+
+Or build only selected versions:
+
+```
+sudo ./docker/build_images.sh 9.1 8.0
+```
+
+Each image is tagged `deepstreamsolutiondocker:<version>`. The DS 8.0 build also
+compiles and installs the patched per-object action-recognition library (see the
+"Per-object action recognition" note below) into `/opt/nvidia/deepstream/deepstream/lib/`,
+so the per-object pipeline works out of the box in that image.
+
+Equivalent manual commands for reference:
+
+```
+# DeepStream 9.1
+sudo docker build -f docker/Dockerfile \
+  --build-arg DS_VERSION=9.1 \
+  --build-arg DS_FLAVOR=triton-multiarch \
+  --build-arg DS_FOLDER=9.1 \
+  -t deepstreamsolutiondocker:9.1 .
+
+# DeepStream 8.0 (also builds + installs the patched action-recognition library)
+sudo docker build -f docker/Dockerfile \
+  --build-arg DS_VERSION=8.0 \
+  --build-arg DS_FLAVOR=gc-triton-devel \
+  --build-arg DS_FOLDER=8.0 \
+  -t deepstreamsolutiondocker:8.0 .
+
+# DeepStream 6.1.1
+sudo docker build -f docker/Dockerfile \
+  --build-arg DS_VERSION=6.1.1 \
+  --build-arg DS_FLAVOR=devel \
+  --build-arg DS_FOLDER=6.1 \
+  -t deepstreamsolutiondocker:6.1.1 .
+```
+
 3) Setup mysql (https://phoenixnap.com/kb/install-mysql-ubuntu-20-04)
 
 Step 1: Update/Upgrade Package Repository
@@ -61,4 +116,61 @@ systemctl is-enabled rabbitmq-server.service
 
 If the service is disabled, enable it:
 sudo systemctl enable rabbitmq-server
+
+## Action Recognition pipeline
+
+`detector_tracker_classifier_actionRec_deepstream_8.json` adds a 3D action
+recognition stage (resnet18_3d_rgb_hmdb5_32, TAO ActionRecognitionNet) to the
+existing detect -> track -> classify pipeline:
+
+```
+streammux -> pgie_detector -> tracker -> nvdspreprocess -> sgie_actionrec_3d
+         -> sgie_classifier (vehicle make) -> sgie_classifier (vehicle type)
+         -> nvvidconv -> nvosd -> filesink
+```
+
+Run it inside the docker:
+
+```
+cd /workspace/
+python3 pipeline_launcher.py detector_tracker_classifier_actionRec_deepstream_8.json
+```
+
+### Model setup
+
+The 3D action model (`resnet18_3d_rgb_hmdb5_32.etlt`) is downloaded into
+`models/` and the TensorRT engine (`models/resnet18_3d_rgb_hmdb5_32.etlt_b4_gpu0_fp16.engine`)
+is built automatically by nvinfer on first run. Both are git-ignored.
+
+Source on NGC:
+```
+ngc registry model download-version nvidia/tao/actionrecognitionnet:deployable_v1.0
+```
+(the `.etlt` for both 2D and 3D variants; the config uses the 3D one).
+
+### Important limitation: frame-mode vs per-object
+
+The stock `libnvds_custom_sequence_preprocess.so` keys temporal sequences by the
+ROI bounding-box position. It therefore only works reliably in **full-frame mode**
+(`process-on-frame=1`, the sample's native mode), where each source has one fixed
+ROI. This is what the shipped config uses, and it runs to completion.
+
+Per-tracking-target action recognition (`process-on-frame=0`, `process-on-all-objects=1`)
+with this stock library does **not** complete sequence batches for moving objects
+(ROI position changes every frame), so the pipeline stalls. To get per-object
+action labels, the library must be reworked to correlate ROIs by tracker object-id
+instead of by bounding-box position.
+
+The patched source lives in `custom_sequence_preprocess/` in this repo (version
+controlled; built by `docker/build_sequence_lib.sh`). For the DS 8.0 image it is
+compiled and installed automatically at image build time, so the per-object
+config (`detector_tracker_classifier_actionRec_deepstream_8.json`) works out of
+the box using `process-on-frame=0` / `process-on-all-objects=1`. To rebuild the
+library manually inside a running 8.0 container instead:
+
+```
+cd /workspace
+docker/build_sequence_lib.sh
+```
+
 
