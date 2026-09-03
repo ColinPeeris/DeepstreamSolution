@@ -1,26 +1,87 @@
-
 import sys
+from typing import Dict, List, Optional
+
 from gi.repository import Gst
+
+# A single engine's entry in the config's ``inference_engines`` list.
+InferenceEngineConfig = Dict
 
 
 class InferenceEngineBuilder:
-    def __init__(self, pipeline, streammux, tracker, config):
+    """Builds and links the inference stages of the GStreamer pipeline.
+
+    Each entry in the config's ``inference_engines`` list is turned into a
+    ``nvinfer`` element using its generated config file. An engine may also
+    declare an optional ``preprocess`` block, in which case a ``nvdspreprocess``
+    element is inserted ahead of that nvinfer so ROIs can be batched into a
+    temporal sequence tensor (e.g. for 3D/2D action recognition) before
+    inference.
+
+    The resulting chain is::
+
+        streammux -> engine[0] -> [tracker] -> [preprocess] -> engine[1]
+                  -> [preprocess] -> engine[2] -> ...
+    """
+
+    def __init__(self,
+                 pipeline: Gst.Pipeline,
+                 streammux: Gst.Element,
+                 tracker: Optional[Gst.Element],
+                 config: Dict) -> None:
+        """Create the inference elements and link them into the pipeline.
+
+        Args:
+            pipeline: The parent ``Gst.Pipeline`` the elements are added to.
+            streammux: The ``nvstreammux`` element feeding the first engine.
+            tracker: An optional ``nvtracker`` element, or ``None``.
+            config: The application config dict; must contain a non-empty
+                ``inference_engines`` list.
+        """
         self.pipeline = pipeline
-        self.inference_engines = []
+        self.inference_engines: List[Gst.Element] = []
+        self.preprocess_engines: List[Optional[Gst.Element]] = []
         assert len(config['inference_engines']) > 0
         for inference_engine_config in config['inference_engines']:
-            self.inference_engines.append(self.create_inference(inference_engine_config['name'],
-                                                                inference_engine_config['spec_file']))
+            self.create_inference(inference_engine_config)
         self.link_inference_engines(streammux, tracker)
 
-    def get_last_inference_engine(self):
+    def get_last_inference_engine(self) -> Gst.Element:
+        """Return the final ``nvinfer`` element in the chain.
+
+        The sink stage links from this element.
+
+        Returns:
+            The last ``Gst.Element`` nvinfer in the pipeline.
+        """
         assert len(self.inference_engines) > 0
         return self.inference_engines[-1]
 
-    def create_inference(self, model_name, model_config_file):
+    def create_inference(self, inference_engine_config: InferenceEngineConfig) -> None:
+        """Create the nvinfer (and optional nvdspreprocess) elements.
+
+        Args:
+            inference_engine_config: A dict describing a single engine, with
+                at least ``name`` and ``spec_file`` keys, and optionally a
+                ``preprocess_config`` key.
+        """
+        model_name: str = inference_engine_config['name']
+        model_config_file: str = inference_engine_config['spec_file']
+        preprocess_config_file: Optional[str] = inference_engine_config.get('preprocess_config')
+
         print("create inference")
         print("model_name:" + model_name)
         print("model_config_file:" + model_config_file)
+
+        # Use nvdspreprocess to re-process object ROIs into a temporal sequence
+        # tensor for sequence (action recognition) model inference.
+        preprocess: Optional[Gst.Element] = None
+        if preprocess_config_file is not None:
+            preprocess = Gst.ElementFactory.make("nvdspreprocess", model_name + "_preprocess")
+            if not preprocess:
+                sys.stderr.write(" Unable to create nvdspreprocess for " + model_name + "\n")
+            preprocess.set_property('config-file', preprocess_config_file)
+            self.pipeline.add(preprocess)
+
         # Use nvinfer to run inferencing on decoder's output,
         # behaviour of inferencing is set through config file
         inference_engine = Gst.ElementFactory.make("nvinfer", model_name)
@@ -30,22 +91,40 @@ class InferenceEngineBuilder:
         inference_engine.set_property('config-file-path', model_config_file)
         self.pipeline.add(inference_engine)
 
-        return inference_engine
+        self.inference_engines.append(inference_engine)
+        self.preprocess_engines.append(preprocess)
 
-    def link_inference_engines(self, streammux, tracker):
-        first_model = True
-        for index in range(len(self.inference_engines)):
-            if first_model:
-                first_model = False
-                ret = streammux.link(self.inference_engines[index])
-                print("link streammux to inference engine " + str(index) + " -> " + str(ret))
-                if tracker is not None:
-                    ret = self.inference_engines[index].link(tracker)
-                    print("link inference engine " + str(index) + " to tracker engine -> " + str(ret))
-            else:
-                if (tracker is not None) and (index - 1 == 0):
-                    ret = tracker.link(self.inference_engines[index])
-                    print("link tracker engine to inference engine " + str(index) + " -> " + str(ret))
-                else:
-                    ret = self.inference_engines[index-1].link(self.inference_engines[index])
-                    print("link inference engine " + str(index-1) + " to inference engine " + str(index) + " -> " + str(ret))
+    def link_inference_engines(self,
+                               streammux: Gst.Element,
+                               tracker: Optional[Gst.Element]) -> None:
+        """Link the streammux, tracker, preprocess and nvinfer elements.
+
+        The first nvinfer links from the streammux, then (if present) to the
+        tracker. Every subsequent nvinfer links from the previous element,
+        inserting its associated ``nvdspreprocess`` element in between when one
+        was created.
+
+        Args:
+            streammux: The ``nvstreammux`` element to start the chain from.
+            tracker: An optional ``nvtracker`` element, or ``None``.
+        """
+        first: Gst.Element = self.inference_engines[0]
+        ret = streammux.link(first)
+        print("link streammux to inference engine 0 -> " + str(ret))
+
+        prev: Gst.Element = first
+        if tracker is not None:
+            ret = first.link(tracker)
+            print("link inference engine 0 to tracker engine -> " + str(ret))
+            prev = tracker
+
+        for index in range(1, len(self.inference_engines)):
+            preprocess = self.preprocess_engines[index]
+            inference_engine = self.inference_engines[index]
+            if preprocess is not None:
+                ret = prev.link(preprocess)
+                print("link to preprocess engine " + str(index) + " -> " + str(ret))
+                prev = preprocess
+            ret = prev.link(inference_engine)
+            print("link to inference engine " + str(index) + " -> " + str(ret))
+            prev = inference_engine

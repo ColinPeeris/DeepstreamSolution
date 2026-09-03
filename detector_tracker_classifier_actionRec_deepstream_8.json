@@ -1,0 +1,137 @@
+{
+  "video_source" : {
+    "filename" : "/opt/nvidia/deepstream/deepstream/samples/streams/sample_720p.h264"
+  },
+  "inference_engines" : [
+    {
+      "name" : "pgie_detector_1",
+      "property" : {
+        "gpu-id": 0,
+        "net-scale-factor": 0.0039215697906911373,
+        "onnx-file": "/opt/nvidia/deepstream/deepstream/samples/models/Primary_Detector/resnet18_trafficcamnet_pruned.onnx",
+        "model-engine-file": "/opt/nvidia/deepstream/deepstream/samples/models/Primary_Detector/resnet18_trafficcamnet_pruned.onnx_b1_gpu0_fp16.engine",
+        "labelfile-path": "/opt/nvidia/deepstream/deepstream/samples/models/Primary_Detector/labels.txt",
+        "batch-size": 1,
+        "network-mode": 2,
+        "process-mode": 1,
+        "model-color-format": 0,
+        "num-detected-classes": 4,
+        "interval": 0,
+        "gie-unique-id": 1,
+        "output-blob-names": "output_bbox/BiasAdd:0;output_cov/Sigmoid:0"
+      },
+      "class-attrs-all" : {
+        "pre-cluster-threshold": 0.2,
+        "eps": 0.2,
+        "group-threshold": 1
+      }
+    },
+    {
+      "name" : "sgie_actionrec_3d_2",
+      "property" : {
+        "gpu-id": 0,
+        "tlt-encoded-model": "/workspace/models/resnet18_3d_rgb_hmdb5_32.etlt",
+        "tlt-model-key": "nvidia_tao",
+        "model-engine-file": "/workspace/models/resnet18_3d_rgb_hmdb5_32.etlt_b4_gpu0_fp16.engine",
+        "labelfile-path": "/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/deepstream-3d-action-recognition/labels.txt",
+        "batch-size": 4,
+        "process-mode": 1,
+        "network-mode": 2,
+        "gie-unique-id": 2,
+        "network-type": 1,
+        "input-tensor-from-meta": 1,
+        "output-tensor-meta": 1,
+        "tensor-meta-pool-size": 8
+      },
+      "preprocess" : {
+        "property" : {
+          "gpu-id": 0,
+          "enable": 1,
+          "target-unique-ids": 1,
+          "process-on-frame": 1,
+          "network-input-shape": "4;3;32;224;224",
+          "network-color-format": 0,
+          "network-input-order": 2,
+          "tensor-data-type": 0,
+          "tensor-name": "input_rgb",
+          "processing-width": 224,
+          "processing-height": 224,
+          "scaling-pool-memory-type": 0,
+          "scaling-pool-compute-hw": 0,
+          "scaling-filter": 0,
+          "tensor-buf-pool-size": 8,
+          "custom-lib-path": "/opt/nvidia/deepstream/deepstream/lib/libnvds_custom_sequence_preprocess.so",
+          "custom-tensor-preparation-function": "CustomSequenceTensorPreparation"
+        },
+        "user-configs" : {
+          "channel-scale-factors": "0.007843137;0.007843137;0.007843137",
+          "channel-mean-offsets": "127.5;127.5;127.5",
+          "stride": 1,
+          "subsample": 0
+        },
+        "group-0" : {
+          "src-ids": 0,
+          "process-on-roi": 1,
+          "roi-params-src-0": "0;0;1280;720"
+        }
+      }
+    },
+    {
+      "name" : "sgie_classifier_3",
+      "property" : {
+        "gpu-id": 0,
+        "net-scale-factor": 1,
+        "onnx-file": "/opt/nvidia/deepstream/deepstream/samples/models/Secondary_VehicleMake/resnet18_vehiclemakenet_pruned.onnx",
+        "model-engine-file": "/opt/nvidia/deepstream/deepstream/samples/models/Secondary_VehicleMake/resnet18_vehiclemakenet_pruned.onnx_b16_gpu0_fp16.engine",
+        "labelfile-path": "/opt/nvidia/deepstream/deepstream/samples/models/Secondary_VehicleMake/labels.txt",
+        "batch-size": 16,
+        "network-mode": 2,
+        "input-object-min-width": 64,
+        "input-object-min-height": 64,
+        "process-mode": 2,
+        "model-color-format": 1,
+        "gie-unique-id": 3,
+        "operate-on-gie-id": 1,
+        "operate-on-class-ids": 0,
+        "is-classifier": 1,
+        "output-blob-names": "predictions/Softmax:0",
+        "classifier-async-mode": 1,
+        "classifier-threshold": 0.51
+      }
+    },
+    {
+      "name" : "sgie_classifier_4",
+      "property" : {
+        "gpu-id": 0,
+        "net-scale-factor": 1,
+        "onnx-file": "/opt/nvidia/deepstream/deepstream/samples/models/Secondary_VehicleTypes/resnet18_vehicletypenet_pruned.onnx",
+        "model-engine-file": "/opt/nvidia/deepstream/deepstream/samples/models/Secondary_VehicleTypes/resnet18_vehicletypenet_pruned.onnx_b16_gpu0_fp16.engine",
+        "labelfile-path": "/opt/nvidia/deepstream/deepstream/samples/models/Secondary_VehicleTypes/labels.txt",
+        "batch-size": 16,
+        "network-mode": 2,
+        "input-object-min-width": 64,
+        "input-object-min-height": 64,
+        "process-mode": 2,
+        "model-color-format": 1,
+        "gie-unique-id": 4,
+        "operate-on-gie-id": 1,
+        "operate-on-class-ids": 0,
+        "is-classifier": 1,
+        "output-blob-names": "predictions/Softmax:0",
+        "classifier-async-mode": 1,
+        "classifier-threshold": 0.51
+      }
+    }
+  ],
+  "va_filters" : [
+    "VehicleMonitorFilter"
+  ],
+  "sink_type" : "filesink",
+  "tracker" : {
+    "tracker-width": 640,
+    "tracker-height": 384,
+    "gpu-id": 0,
+    "ll-lib-file": "/opt/nvidia/deepstream/deepstream/lib/libnvds_nvmultiobjecttracker.so",
+    "ll-config-file": "config_tracker_NvDCF_perf.yml"
+  }
+}

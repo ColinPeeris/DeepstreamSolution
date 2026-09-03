@@ -1,0 +1,103 @@
+================================================================================
+  3D Action Recognition (resnet18_3d_rgb_hmdb5_32) — model download guide
+================================================================================
+
+This document explains how the .etlt model was obtained and gives you the
+exact commands to redo it yourself.
+
+------------------------------------------------------------------------------
+WHY NO .onnx/.engine WAS NEEDED TO DOWNLOAD
+------------------------------------------------------------------------------
+The repo DOES ship a model "resnet18_3d_rgb/1/resnet18_3d_rgb.engine" but it is
+only a SYMLINK to a file that is never generated:
+
+    triton_model_repo/resnet18_3d_rgb/1/resnet18_3d_rgb.engine
+        -> ../../../resnet18_3d_rgb_hmdb5_32.onnx_b4_gpu0_fp16.engine   (MISSING)
+
+There was no .onnx / .etlt / .engine anywhere on the system, so nothing to use.
+
+The model is hosted on NVIDIA's NGC registry (nvidia/tao/actionrecognitionnet).
+Two useful versions exist:
+
+    :trainable_rgb_3d        -> only a .tlt TRAINING checkpoint  (not deployable)
+    :deployable_v1.0         -> .etlt files, ready for DeepStream  (use this!)
+
+The .etlt file is the encrypted TAO model. DeepStream's gst-nvinfer reads it
+directly via  tlt-encoded-model=<file> + tlt-model-key=nvidia_tao  and builds
+the TensorRT engine automatically on first run (no separate trtexec needed).
+
+The great news: this model allows GUEST download (no NGC account / API key).
+So we can just curl it.
+
+------------------------------------------------------------------------------
+STEP 0 — Start the deepstream docker (as you normally would)
+------------------------------------------------------------------------------
+    sudo docker run --gpus all -it --rm \
+      --net=host \
+      --privileged \
+      -v /tmp/.X11-unix:/tmp/.X11-unix \
+      -e DISPLAY=$DISPLAY \
+      --mount type=bind,src="/home/colin/src/DeepstreamSolution",target=/workspace \
+      cpeeris/deepstreamsolutiondocker:8.0
+
+    cd /workspace
+
+------------------------------------------------------------------------------
+STEP 1 — (optional) Inspect what the NGC model actually contains
+------------------------------------------------------------------------------
+    curl -s "https://api.ngc.nvidia.com/v2/models/nvidia/tao/actionrecognitionnet/versions/deployable_v1.0/files" \
+      | python3 -m json.tool
+
+  Expected file list (deployable_v1.0):
+      resnet18_2d_rgb_hmdb5_32.etlt   45868585
+      resnet18_3d_rgb_hmdb5_32.etlt   132736551
+
+------------------------------------------------------------------------------
+STEP 2 — Download the 3D .etlt into the workspace (guest download, no key)
+------------------------------------------------------------------------------
+    mkdir -p /workspace/models
+    cd /workspace/models
+
+    curl -sL \
+      "https://api.ngc.nvidia.com/v2/models/nvidia/tao/actionrecognitionnet/versions/deployable_v1.0/files/resnet18_3d_rgb_hmdb5_32.etlt" \
+      -o resnet18_3d_rgb_hmdb5_32.etlt
+
+    # sanity check: should be ~132736551 bytes ("data" file type)
+    ls -la resnet18_3d_rgb_hmdb5_32.etlt
+    file resnet18_3d_rgb_hmdb5_32.etlt
+    sha256sum resnet18_3d_rgb_hmdb5_32.etlt
+
+----------------------------------------------------------------------------
+STEP 3 — Run the pipeline once; nvinfer builds the engine automatically
+----------------------------------------------------------------------------
+    cd /workspace
+    python3 pipeline_launcher.py detector_tracker_classifier_actionRec_deepstream_8.json
+
+  On the first run you will see nvinfer build the engine:
+      serialize cuda engine to file: /workspace/models/resnet18_3d_rgb_hmdb5_32.etlt_b4_gpu0_fp16.engine successfully
+
+  The generated artifact (git-ignored):
+      /workspace/models/resnet18_3d_rgb_hmdb5_32.etlt_b4_gpu0_fp16.engine
+
+----------------------------------------------------------------------------
+OPTIONAL — If you DO have an NGC API key, the official way
+----------------------------------------------------------------------------
+  # Install NGC CLI (or run inside the deepstream container)
+      pip install ngc
+      ngc config set   # paste your API key from https://ngc.nvidia.com/setup/api-key
+
+  # Download the deployable .etlt (recommended for DeepStream):
+      ngc registry model download-version nvidia/tao/actionrecognitionnet:deployable_v1.0
+
+  # (Not needed for DeepStream) The trainable variant gives only a .tlt checkpoint:
+      # ngc registry model download-version nvidia/tao/actionrecognitionnet:trainable_rgb_3d
+
+----------------------------------------------------------------------------
+KEY REFERENCES
+----------------------------------------------------------------------------
+  Model page:     https://ngc.nvidia.com/catalog/models/nvidia:tao:actionrecognitionnet
+  NGC files API:  https://api.ngc.nvidia.com/v2/models/nvidia/tao/actionrecognitionnet/versions/deployable_v1.0/files
+  DeepStream 3D Action Recognition sample:
+      /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/deepstream-3d-action-recognition/
+
+================================================================================
