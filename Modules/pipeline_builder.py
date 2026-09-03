@@ -30,6 +30,8 @@ class PipelineBuilder:
                                                   streammux=video_source.get_stream_mux(),
                                                   tracker=tracker,
                                                   config=config.get_config())
+        inference_engine.attach_inference_timing()
+        self.inference_engine = inference_engine
         pipeline_sink = PipelineSinkBuilder(pipeline=self.pipeline,
                                             inference_engine=inference_engine.get_last_inference_engine(),
                                             config=config.get_config())
@@ -65,5 +67,7 @@ class PipelineBuilder:
             self.loop.run()
         except Exception:
             pass
+        # Report per-model inference timing now that the pipeline has finished.
+        self.inference_engine.print_inference_timing()
         # cleanup
         self.pipeline.set_state(Gst.State.NULL)

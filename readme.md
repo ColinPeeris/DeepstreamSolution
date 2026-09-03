@@ -148,6 +148,50 @@ ngc registry model download-version nvidia/tao/actionrecognitionnet:deployable_v
 ```
 (the `.etlt` for both 2D and 3D variants; the config uses the 3D one).
 
+### Measuring per-model inference time
+
+The pipeline now measures and prints a per-model inference timing summary
+automatically when the run finishes (on End-of-stream). Every `nvinfer` element
+(detector, action recognition, and the vehicle make/type classifiers) gets a
+src-pad probe that accumulates the interval between successive output buffers;
+when the pipeline exits it prints a table like:
+
+```
+===== Per-model inference timing =====
+  pgie_detector_1                     batch_size=4   per_batch= 32.8 ms  per_image=  8.20 ms  (min=  0.40 max=404.32 ms, n=1441)
+  sgie_actionrec_3d_2                 batch_size=4   per_batch= 32.6 ms  per_image=  8.15 ms  (min=  0.77 max= 45.46 ms, n=1441)
+  sgie_classifier_3                   batch_size=4   per_batch= 32.6 ms  per_image=  8.15 ms  (min=  0.77 max= 45.45 ms, n=1441)
+  sgie_classifier_4                   batch_size=4   per_batch= 32.6 ms  per_image=  8.15 ms  (min=  0.77 max= 45.40 ms, n=1441)
+=====================================
+```
+
+One src-pad buffer corresponds to one inference batch, so `per_batch` is the
+measured interval between output batches and `per_image` is that interval divided
+by the model's `batch-size` (the amortized cost per image in a batch of N).
+
+This is implemented in `Modules/inference_engine_builder.py` (the probe
+accumulation) and printed from `Modules/pipeline_builder.py`. No setup is
+required — just run the pipeline:
+
+```
+cd /workspace
+python3 pipeline_launcher.py configs/detector_tracker_classifier_actionRec_deepstream_8.json
+```
+
+The reported value is the per-model processing cadence in the running pipeline
+(the interval between output batches), reflecting latency including that model's
+pre/post-processing. For the raw GPU-only TensorRT inference time of a single
+model, bypass the pipeline with `trtexec` on the built engine:
+
+```
+/usr/src/tensorrt/bin/trtexec --loadEngine=models/resnet18_3d_rgb_hmdb5_32.etlt_b4_gpu0_fp16.engine
+```
+
+> Note: DeepStream's `NVDS_ENABLE_LATENCY_MEASUREMENT` /
+> `NVDS_ENABLE_COMPONENT_LATENCY_MEASUREMENT` env vars only work with NVIDIA's
+> C++ `deepstream-app` / sample apps; they are ignored by custom Python
+> pipelines, which is why timing is now done in the probe code above.
+
 ### Important limitation: frame-mode vs per-object
 
 The stock `libnvds_custom_sequence_preprocess.so` keys temporal sequences by the

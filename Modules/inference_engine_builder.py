@@ -3,6 +3,8 @@ from typing import Dict, List, Optional
 
 from gi.repository import Gst
 
+from Utils.timing import InferenceTimingMonitor
+
 # A single engine's entry in the config's ``inference_engines`` list.
 InferenceEngineConfig = Dict
 
@@ -40,6 +42,7 @@ class InferenceEngineBuilder:
         self.pipeline = pipeline
         self.inference_engines: List[Gst.Element] = []
         self.preprocess_engines: List[Optional[Gst.Element]] = []
+        self.inference_timing_monitor = InferenceTimingMonitor()
         assert len(config['inference_engines']) > 0
         for inference_engine_config in config['inference_engines']:
             self.create_inference(inference_engine_config)
@@ -55,6 +58,24 @@ class InferenceEngineBuilder:
         """
         assert len(self.inference_engines) > 0
         return self.inference_engines[-1]
+
+    def attach_inference_timing(self) -> None:
+        """Attach per-model inference timing probes to every nvinfer element.
+
+        Delegates to :class:`Utils.timing.InferenceTimingMonitor`; see there for
+        details. One src-pad buffer corresponds to one inference batch, so the
+        measured interval is a per-batch time and dividing by the model's
+        ``batch-size`` yields an approximate per-image time.
+        """
+        self.inference_timing_monitor.attach(self.inference_engines)
+
+    def print_inference_timing(self) -> None:
+        """Print a per-model inference timing summary at the end of the run.
+
+        Delegates to :class:`Utils.timing.InferenceTimingMonitor`. Call after
+        the pipeline has finished (End-of-stream).
+        """
+        self.inference_timing_monitor.print_summary()
 
     def create_inference(self, inference_engine_config: InferenceEngineConfig) -> None:
         """Create the nvinfer (and optional nvdspreprocess) elements.
