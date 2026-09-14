@@ -36,23 +36,36 @@ class InferenceTimingMonitor:
         """Initialize an empty timing monitor."""
         self._stats: List[Dict] = []
 
-    def attach(self, inference_engines: List[Gst.Element]) -> None:
-        """Attach per-model timing probes to every nvinfer element.
+    def attach(self,
+               inference_engines: List[Gst.Element],
+               batch_sizes: Optional[List[int]] = None) -> None:
+        """Attach per-model timing probes to every inference engine element.
 
-        Adds a ``BUFFER`` probe to each nvinfer's src pad that measures the
+        Adds a ``BUFFER`` probe to each engine's src pad that measures the
         wall-clock interval between successive output buffers. Statistics,
         including the model's configured batch size, are accumulated per model.
 
+        ``nvinfer`` exposes ``batch-size`` as a GStreamer property, but
+        ``nvinferserver`` does not. Pass an explicit ``batch_sizes`` list (one
+        entry per engine, sourced from the config) to override the property
+        lookup; entries that are ``None`` or absent fall back to the element
+        property (default 1).
+
         Args:
-            inference_engines: The list of ``nvinfer`` elements to time.
+            inference_engines: The list of inference-engine elements to time.
+            batch_sizes: Optional per-engine configured batch sizes.
         """
         self._stats = []
-        for engine in inference_engines:
+        for index, engine in enumerate(inference_engines):
             src_pad = engine.get_static_pad("src")
-            try:
-                batch_size = engine.get_property("batch-size")
-            except Exception:
-                batch_size = 1
+            batch_size = 1
+            if batch_sizes is not None and index < len(batch_sizes) and batch_sizes[index] is not None:
+                batch_size = batch_sizes[index]
+            else:
+                try:
+                    batch_size = engine.get_property("batch-size")
+                except Exception:
+                    batch_size = 1
             stats = {
                 'name': engine.get_name(),
                 'batch_size': batch_size,

@@ -8,13 +8,13 @@ Refer to this page: https://docs.nvidia.com/datacenter/cloud-native/container-to
 # Allow local root access to the X server
 xhost +local:root
 
-# Run the container
+# Run the container (from the DeepstreamSolution repo dir, so $(pwd) binds the repo to /workspace)
 sudo docker run --gpus all -it --rm \
   --net=host \
   --privileged \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
   -e DISPLAY=$DISPLAY \
-  --mount type=bind,src="/absolute/path/to/DeepstreamSolution",target=/workspace \
+  --mount type=bind,src="$(pwd)",target=/workspace \
   cpeeris/deepstreamsolutiondocker:8.0  # 6.1.1 and 9.1 also supported
 
 ## Building the Docker images
@@ -216,5 +216,108 @@ library manually inside a running 8.0 container instead:
 cd /workspace
 docker/build_sequence_lib.sh
 ```
+
+## Triton Inference Server pipeline
+
+The pipeline can run its inference models on a remote/test NVIDIA Triton Inference
+Server instead of local `nvinfer` elements. The remote backend is selected with
+a single top-level switch in the application JSON:
+
+```json
+"inference_backend": "triton",              // or "nvinfer" (default)
+"triton": { "server_url": "localhost:8001", "protocol_type": "grpc" }
+```
+
+When `"triton"` is set, `Utils/config.py` writes `nvinferserver` config files
+instead of `nvinfer` ones, in the DeepStream 8.0 protobuf format
+(`infer_config { ... }` + `input_control { ... }`), and `PipelineBuilder` uses
+`Modules/triton_inference_engine_builder.py` which creates `nvinferserver`
+GStreamer elements. The local `nvinfer` path is unchanged.
+
+Shipped config: `configs/detector_tracker_classifier_lpr_triton_deepstream_8.json`
+(detector -> tracker -> LPD -> LPR -> vehicle-make/type classifiers). It omits
+the 3D action-recognition engine because Triton cannot serve TAO `.etlt` models
+(those stay on `nvinfer` with the `_actionRec_` configs).
+
+### How to run it
+
+```bash
+# 0. Build a Triton-flavored image (plain "devel" images have NO nvinferserver plugin)
+./docker/build_images.sh 8.0            # 9.1 also works
+
+# 1. Start the container (host networking so the pipeline and Triton share localhost:8001)
+docker run --gpus all --net=host --privileged -it \
+  -v /tmp/.X11-unix:/tmp/.X11-unix -e DISPLAY=$DISPLAY \
+  --mount type=bind,src="$(pwd)",target=/workspace \
+  cpeeris/deepstreamsolutiondocker:8.0
+
+# 2. Inside the container: generate the Triton model repository from the SAME JSON
+cd /workspace
+python3 Utils/generate_triton_model_repo.py \
+  configs/detector_tracker_classifier_lpr_triton_deepstream_8.json \
+  --repo /workspace/triton/model_repo \
+  --backend onnxruntime --execution-accelerator tensorrt
+
+#    The models are SYMLINKED into the repo (1/model.onnx -> original path), not
+#    copied: the detector/make/type models live under the DeepStream samples and
+#    LPD/LPR under /workspace/models, and Triton loads them through the symlinks.
+#    Pass --copy to force real copies for filesystems that lack symlinks.
+#
+#    ONNX models are served by the onnxruntime backend using its TensorRT
+#    execution provider (--execution-accelerator tensorrt, the default). This
+#    routes Convs through TensorRT and avoids onnxruntime's cuDNN-frontend
+#    heuristic planner, which fails ("CUDNN_FE failure 8: HEURISTIC_QUERY_FAILED")
+#    on Ampere GPUs when plain CUDA EP is used. Pass --execution-accelerator cuda
+#    or none to change that. Explicit input/output signatures are derived from the
+#    ONNX graph when the `onnx` python package is installed (pip install onnx);
+#    otherwise Triton derives them from the model at load time.
+
+# 3. Start Triton Inference Server (gRPC on 8001) in the background
+nohup tritonserver --model-repository=/workspace/triton/model_repo \
+  --http-port 8000 --grpc-port 8001 > /tmp/triton.log 2>&1 &
+#    wait until the log shows every model READY (TRT-EP engines are built on the
+#    first load, which can take a minute or two).
+#    stopping/restarting: pkill -x tritonserver   (NOT pkill -f, which matches its own
+#    shell). Triton honors exit_timeout (~30s), so wait before checking:
+#      pgrep -x tritonserver        # empty output = stopped
+#      for p in 8000 8001 8002; do (echo > /dev/tcp/127.0.0.1/$p) 2>/dev/null \
+#        && echo "$p busy" || echo "$p free"; done   # all "free" = ports released
+
+# 4. Run the pipeline (client-side nvinferserver configs are generated into a
+#    temp dir by Utils/config.py, exactly like the nvinfer ones)
+python3 pipeline_launcher.py configs/detector_tracker_classifier_lpr_triton_deepstream_8.json
+```
+
+Verification: you should see "create triton inference" per engine, per-model
+timing with real batch counts (not "no buffers observed"), vehicle make/type
+labels (`['bmw', 'sedan']`, ...) on stdout and `output.mp4` written. Re-run any
+`_deepstream_8.json` config afterwards to confirm the local `nvinfer` path is
+unaffected.
+
+### Backends and caveats
+
+- Models are served with the `onnxruntime` backend by default (uses each
+  engine's `onnx-file`). Newer Triton images call it `onnxruntime_onnx`; pass
+  `--backend onnxruntime_onnx` there. To serve pre-built TensorRT engines instead:
+  `--backend tensorrt_plan` (uses `model-engine-file`). `config.pbtxt` is written
+  with explicit I/O signatures from the ONNX graph (field names are output above)
+  and the accelerator requested via `optimization.execution_accelerators`.
+- The DeepStream client parses outputs by the exact `output-blob-names` from the
+  JSON, so the served model's graph outputs must match them. Triton's onnxruntime
+  backend derives those names from the model graph (or from the explicit config).
+- `protocol_type` values: `grpc` (port 8001, recommended) or `http` (port 8000).
+- Client config generation (`Utils/config.py`) drops model-file keys (`onnx-file`,
+  `model-engine-file`, `int8-calib-file`, `tlt-encoded-model`) because the server
+  loads those from its own model repository. `gie-unique-id` maps to `unique_id`.
+- Custom output parsers: if an engine sets `custom-lib-path` (and the file exists
+  on the client), the config emits `custom_lib { path: ... }` plus
+  `custom_parse_classifier_func`/`custom_parse_bbox_func` so the `nvinferserver`
+  postprocessor uses the same custom parser the nvinfer path does. This is how
+  LPR plates are decoded (see `notes/lpr_lpd_model_download.txt` STEP 3 to build
+  `libnvdsinfer_custom_impl_lpr.so`, which is NOT bundled in the DS 8.0 image).
+  Without it the LPR engine still runs but produces no plate text.
+- The temp config files must survive for the whole pipeline run: `nvinferserver`
+  reads `config-file-path` at pipeline start (unlike `nvinfer`, which loads at
+  element creation). `PipelineBuilder` therefore cleans them up after the run.
 
 

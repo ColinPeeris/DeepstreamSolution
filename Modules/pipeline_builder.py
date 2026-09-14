@@ -5,6 +5,7 @@ import shutil
 
 from Modules.video_source_builder import VideoSourceBuilder
 from Modules.inference_engine_builder import InferenceEngineBuilder
+from Modules.triton_inference_engine_builder import TritonInferenceEngineBuilder
 from Modules.pipeline_sink_builder import PipelineSinkBuilder
 from Modules.va_filter_builder import VAFilterBuilder
 from Modules.tracker_builder import TrackerBuilder
@@ -18,7 +19,7 @@ from common.bus_call import bus_call                                    # noqa: 
 
 class PipelineBuilder:
     def __init__(self, config_file_name):
-        temp_directory = tempfile.mkdtemp(dir=".")
+        temp_directory = tempfile.mkdtemp()
         config = Config(config_file_name, temp_directory)
         # Standard GStreamer initialization
         Gst.init(None)
@@ -26,10 +27,13 @@ class PipelineBuilder:
 
         video_source = VideoSourceBuilder(pipeline=self.pipeline, config=config.get_config())
         tracker = TrackerBuilder(pipeline=self.pipeline, config=config.get_config()).get_tracker()
-        inference_engine = InferenceEngineBuilder(pipeline=self.pipeline,
-                                                  streammux=video_source.get_stream_mux(),
-                                                  tracker=tracker,
-                                                  config=config.get_config())
+        inference_engine_builder = TritonInferenceEngineBuilder \
+            if config.get_config().get('inference_backend', 'nvinfer') == 'triton' \
+            else InferenceEngineBuilder
+        inference_engine = inference_engine_builder(pipeline=self.pipeline,
+                                                    streammux=video_source.get_stream_mux(),
+                                                    tracker=tracker,
+                                                    config=config.get_config())
         inference_engine.attach_inference_timing()
         self.inference_engine = inference_engine
         pipeline_sink = PipelineSinkBuilder(pipeline=self.pipeline,
@@ -39,7 +43,7 @@ class PipelineBuilder:
                         config=config.get_config())
 
         self.create_event_loop(self.pipeline)
-        shutil.rmtree(temp_directory)
+        self.temp_directory = temp_directory
 
     def create_pipline(self):
         # Create gstreamer elements
@@ -69,5 +73,9 @@ class PipelineBuilder:
             pass
         # Report per-model inference timing now that the pipeline has finished.
         self.inference_engine.print_inference_timing()
+        # Generated per-engine config files are no longer needed once the
+        # pipeline stops (nvinferserver reads them at start time, so they must
+        # live for the whole run).
+        shutil.rmtree(self.temp_directory)
         # cleanup
         self.pipeline.set_state(Gst.State.NULL)
