@@ -1,0 +1,45 @@
+{
+  "video_source": {
+    "filename": "/opt/nvidia/deepstream/deepstream/samples/streams/sample_720p.h264"
+  },
+  "inference_backend": "triton",
+  "triton": {
+    "server_url": "localhost:8001",
+    "protocol_type": "grpc"
+  },
+  "inference_engines": [
+    {
+      "name": "pgie_detector_1",
+      "model_name": "resnet18_trafficcamnet",
+      "property": {
+        "gpu-id": 0,
+        "net-scale-factor": 0.0039215697906911373,
+        "onnx-file": "/opt/nvidia/deepstream/deepstream/samples/models/Primary_Detector/resnet18_trafficcamnet_pruned.onnx",
+        "model-engine-file": "/opt/nvidia/deepstream/deepstream/samples/models/Primary_Detector/resnet18_trafficcamnet_pruned.onnx_b16_gpu0_fp16.engine",
+        "labelfile-path": "/opt/nvidia/deepstream/deepstream/samples/models/Primary_Detector/labels.txt",
+        "batch-size": 16,
+        "network-mode": 2,
+        "process-mode": 1,
+        "model-color-format": 0,
+        "num-detected-classes": 4,
+        "interval": 0,
+        "gie-unique-id": 1,
+        "output-blob-names": "output_bbox/BiasAdd:0;output_cov/Sigmoid:0"
+      },
+      "class-attrs-all": {
+        "pre-cluster-threshold": 0.2,
+        "eps": 0.2,
+        "group-threshold": 1
+      }
+    }
+  ],
+  "va_filters": [],
+  "sink_type": "filesink",
+  "tracker": {
+    "tracker-width": 640,
+    "tracker-height": 384,
+    "gpu-id": 0,
+    "ll-lib-file": "/opt/nvidia/deepstream/deepstream/lib/libnvds_nvmultiobjecttracker.so",
+    "ll-config-file": "config_tracker_NvDCF_perf.yml"
+  }
+}

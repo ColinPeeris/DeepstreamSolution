@@ -51,21 +51,23 @@ class TritonInferenceEngineBuilder:
         self.preprocess_engines: List[Optional[Gst.Element]] = []
         self.batch_sizes: List[int] = []
         self.inference_timing_monitor = InferenceTimingMonitor()
+        self.chain_tail: Optional[Gst.Element] = None
         assert len(config['inference_engines']) > 0
         for inference_engine_config in config['inference_engines']:
             self.create_inference(inference_engine_config)
         self.link_inference_engines(streammux, tracker)
 
     def get_last_inference_engine(self) -> Gst.Element:
-        """Return the final ``nvinferserver`` element in the chain.
+        """Return the last element of the inference/tracker chain.
 
-        The sink stage links from this element.
+        This is the final nvinferserver if any engine follows the tracker,
+        else the tracker itself (the sink stage links from this element).
 
         Returns:
-            The last ``Gst.Element`` nvinferserver in the pipeline.
+            The last ``Gst.Element`` in the chain.
         """
-        assert len(self.inference_engines) > 0
-        return self.inference_engines[-1]
+        assert self.chain_tail is not None
+        return self.chain_tail
 
     def attach_inference_timing(self) -> None:
         """Attach per-model inference timing probes to every nvinferserver element.
@@ -157,3 +159,4 @@ class TritonInferenceEngineBuilder:
             ret = prev.link(inference_engine)
             print("link to inference engine " + str(index) + " -> " + str(ret))
             prev = inference_engine
+        self.chain_tail = prev
