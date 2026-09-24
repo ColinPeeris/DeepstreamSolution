@@ -1,0 +1,376 @@
+================================================================================
+Experimental Report: When (and where) Triton beats native nvinfer in DeepStream
+================================================================================
+Date   : 2026-09-24
+Repo   : DeepstreamSolution (mount point in container: /workspace)
+Purpose: Isolate which pipeline stages produce the "Triton crossover" -- the
+         regime where a locally running Triton Inference Server out-processes
+         DeepStream's in-process nvinfer plugin.
+
+All experiments below are run with two standalone, single-file scripts:
+
+  standalone_detector_benchmark/detector_benchmark.py   (homogeneous chains)
+  standalone_detector_benchmark/lpr_benchmark.py        (heterogeneous LPR
+                                                         pipeline + subsets)
+
+They are self-contained: no dependency on this repository's Modules/Utils or
+on benchmarks/. They were created because the earlier "crossover" seen in the
+sample/benchmark numbers (benchmarks/experiment_report.txt, 2026-09-15) needed
+to be checked with an apples-to-apples, reproducible harness.
+
+--------------------------------------------------------------------------------
+1. ENVIRONMENT
+--------------------------------------------------------------------------------
+  GPU           : NVIDIA GeForce RTX 3080 Ti, 12 GB, driver 580.173.02, CUDA 12.8
+  DeepStream    : 8.0.0 container image cpeeris/deepstreamsolutiondocker:8.0
+                  (GStreamer 1.24.2, gst-nvinfer / gst-nvinferserver 8.0)
+  Triton        : 2.56.0 (/opt/tritonserver/bin/tritonserver, gRPC :8001)
+  Container     : goofy_volhard (root, host networking), repo bind-mounted /workspace
+  Input video   : /opt/nvidia/deepstream/deepstream/samples/streams/sample_720p.h264
+                  (1920x1080 H.264, 1441 frames), decoded N times for N streams
+
+Models (the lpr_benchmark.py scripts validate every path and abort if missing):
+  - TrafficCamNet, VehicleMakeNet, VehicleTypeNet: the DeepStream SDK sample
+    install inside the container under
+    /opt/nvidia/deepstream/deepstream/samples/models/
+    (onnx + prebuilt _b16_gpu0_fp16.engine + labels.txt)
+  - LPDNet  (INT8, batch-16), LPRNet (FP16, batch-16), INT8 calibration file,
+    dict_us.txt: local files under /workspace/models/LP/{LPD,LPR}/ placed
+    during earlier work (gitignored, not version-controlled)
+  - LPR custom plate parser: /opt/nvidia/deepstream/deepstream/lib/
+    libnvdsinfer_custom_impl_lpr.so (reads the plate dictionary from a bare
+    "dict.txt" in the pipeline process' working directory)
+
+--------------------------------------------------------------------------------
+2. SHARED METHODOLOGY GUARANTEES (both scripts)
+--------------------------------------------------------------------------------
+  * Both backends run the IDENTICAL GStreamer pipeline and identical model
+    files; only the inference plugin differs (nvinfer <=> nvinferserver).
+  * Engine build time is NEVER measured. Every measured run deserializes an
+    existing *.engine file, and --warmup runs each config once unmeasured first
+    so any one-off compilation happens there. Triton is started and load-verified
+    before measured triton runs.
+  * Each measured run is a fresh child process, so GPU/library state never
+    leaks between runs.
+  * End-to-end fps = decoded frames / wall time (frames counted on the decoder
+    src pads, from End-of-stream to process exit).
+  * Per-model per-image time = per-batch src-pad interval / model batch size
+    (a batch of N means N frames share one inference, so per-image is the
+    amortized per-frame model cost). At 1 stream with model batch 16 the
+    per-image figures are 16x too small and must not be read literally -- use
+    fps there.
+  * Results land as results.csv (per repeat) + summary.txt (mean) under OUT.
+
+--------------------------------------------------------------------------------
+3. EXPERIMENT 1 -- HOMOGENEOUS CHAINS (n copies of the same detector)
+--------------------------------------------------------------------------------
+Script   : standalone_detector_benchmark/detector_benchmark.py
+Why      : Before checking heterogeneous pipelines, establish the "null model".
+           Chain N identical TrafficCamNet detectors (full 544x960 frame
+           inference per stage) so the only difference between stages is the
+           gie-unique-id. nvinfer instantiates each in-process; Triton serves
+           them all from one server-side engine.
+Fairness corrections made during this work (so the numbers below are the
+canonical dataset):
+  - batch == streams: nvinfer batch-size and Triton max_batch_size both equal
+    the stream count (16 -> b16 engines, 32 -> b32 engines), and the streammux
+    flushes each full batch in one shot. Earlier versions ran model batch 16 on
+    32 streams and produced a spurious "crossover at extra1@32": nvinfer reps
+    891/644/684 fps (run-to-run spread 247) vs triton 801/856/856 -- i.e.
+    32-stream sampling noise, not a real Triton advantage.
+  - Fresh Triton server per extra-count (--sweep): a single long-lived server
+    was observed to degrade and eventually hang (extra3@32, >30 min) after many
+    experiments, so error-barring a whole sweep on one server is unsound.
+
+Invocation (results here from OUT /tmp/dbb_sweep_b32):
+    python3 standalone_detector_benchmark/detector_benchmark.py --sweep --sweep-max 3 \
+        --warmup --out /tmp/dbb_sweep_b32
+
+Results (mean fps of 3 reps, streams = batch; extra = number of ADDITIONAL
+detector instances, total engines = extra + 1):
+
+  extra  backend   16 streams   32 streams     ratio triton/nvinfer
+     0   nvinfer     1341.7       1348.8        1.01 @16  1.03 @32  (tie)
+     0   triton      1350.8       1383.2
+     1   nvinfer     1228.4       1255.1        0.80 @16  0.85 @32  (nvinfer)
+     1   triton       980.8       1060.4
+     2   nvinfer      994.8       1030.0        0.69 @16  0.73 @32  (nvinfer)
+     2   triton       686.4        750.0
+     3   nvinfer      762.9        785.7        0.70 @16  0.73 @32  (nvinfer)
+     3   triton       535.7        573.1
+
+Conclusion: with a chain of IDENTICAL models there is NO Triton crossover.
+The two backends are level with one model; every added instance tilts hard
+toward nvinfer (Triton +~75% of nvinfer's fps at extra>=1). Also ran extra 0..6
+in earlier sweeps with the same conclusion.
+
+--------------------------------------------------------------------------------
+4. EXPERIMENT 2 -- FULL 5-MODEL LPR PIPELINE (the original crossover re-test)
+--------------------------------------------------------------------------------
+Script   : standalone_detector_benchmark/lpr_benchmark.py
+Why      : Re-run the pipeline from benchmarks/experiment_report.txt (which
+           reported nvinfer 316/848/922 vs triton 276/962/1072 fps at 1/16/32
+           streams, i.e. the crossover) with a self-contained harness.
+Pipeline (identical to run_benchmark.py "lpr" family, incl. tracker + OSD):
+
+  streammux -> pgie_detector_1 TrafficCamNet FP16 b16 (full-frame detector)
+            -> nvtracker (config_tracker_NvDCF_perf.yml)
+            -> sgie_lpd_2     LPDNet        INT8 b16 (plates, min 40x30)
+            -> sgie_lpr_3     LPRNet        FP16 b16 (OCR + NvDsInferParseCustomNVPlate)
+            -> sgie_classifier_5 VehicleMakeNet FP16 b16 (async, min 64x64)
+            -> sgie_classifier_6 VehicleTypeNet FP16 b16 (async, min 64x64)
+            -> nvvidconv -> nvdsosd -> tee -> queue -> fakesink
+
+Semantics mirrored from run_benchmark.py: model batch 16 everywhere;
+streammux batch-size = min(streams, 16); single Triton server instance kept
+alive across all triton runs; LPR dictionary staged into OUT as dict.txt so the
+NVPlate parser (which reads a bare "dict.txt" from CWD) works.
+
+Invocation (results here from OUT /tmp/lpr_full):
+    python3 standalone_detector_benchmark/lpr_benchmark.py --streams 1 16 32 \
+        --repeats 3 --warmup --out /tmp/lpr_full
+
+Results (mean fps of 3 runs; per-rep spread tight):
+
+  backend   1 stream   16        32
+  nvinfer    322.5     855.5     933.4      per-image pgie 1.08 / 1.02 ms (16/32)
+  triton     296.9    1004.1    1103.4      per-image pgie 0.92 / 0.87 ms (16/32)
+
+  triton/nvinfer: 0.92x @1   (nvinfer wins single stream)
+                  1.17x @16   (triton wins)
+                  1.18x @32   (triton wins)
+
+Conclusion: the crossover from benchmarks/experiment_report.txt REPRODUCES and
+is actually slightly stronger than originally reported (triton ~13-16% faster
+per the 2026-09-15 report; 17-18% here).
+
+--------------------------------------------------------------------------------
+5. EXPERIMENT 3 -- PLATE RECOGNITION SUB-CHAIN  (pgie + lpd[INT8] + lpr)
+--------------------------------------------------------------------------------
+Script   : standalone_detector_benchmark/lpr_benchmark.py (--stages pgie,lpd,lpr)
+Why      : Does the crossover survive when the two vehicle classifiers are
+           dropped? Keeps the LPD/LPR plate-recognition sub-chain, which is the
+           INT8 ROI detector + FP16 OCR classifier pair.
+Pipeline: streammux -> pgie -> tracker -> lpd -> lpr -> nvvidconv -> nvosd
+          -> fakesink
+
+Invocation (results here from OUT /tmp/lpr_plate):
+    python3 standalone_detector_benchmark/lpr_benchmark.py --stages pgie,lpd,lpr \
+        --streams 1 16 32 --repeats 3 --warmup --out /tmp/lpr_plate
+
+Results (mean fps of 3 runs):
+
+  backend   1 stream   16        32
+  nvinfer    344.6     890.8     974.5      per-image pgie 1.04 / 0.98 ms (16/32)
+  triton     311.9    1016.7    1156.1      per-image pgie 0.91 / 0.83 ms (16/32)
+
+  triton/nvinfer: 0.91x @1  |  1.14x @16  |  1.19x @32
+
+Conclusion: the crossover is FULLY PRESENT in the plate-recognition sub-chain
+alone (triton +14% @16, +19% @32). LPD+LPR are sufficient to produce it.
+
+--------------------------------------------------------------------------------
+6. EXPERIMENT 4 -- PLATE RECOGNITION SUB-CHAIN, FP16 ROI DETECTOR
+                     (pgie + lpd[FP16] + lpr)
+--------------------------------------------------------------------------------
+Script   : standalone_detector_benchmark/lpr_benchmark.py
+          (--stages pgie,lpd,lpr --lpd-precision fp16)
+Why      : Experiment 3 used the INT8 LPD engine. Does the crossover pattern
+           also hold when the ROI detector (LPD) runs FP16 -- i.e. is the
+           pattern precision-independent, or an artifact of the INT8 engine?
+           (Triton was always serving LPD via onnxruntime + TensorRT FP16, so
+           this isolates the nvinfer side precision.) The FP16 b16 LPD engine
+           was built with trtexec (TensorRT 10.9.0) from the same ONNX:
+               trtexec --onnx=LPDNet_usa_pruned_tao5.onnx --fp16
+                       --minShapes=input_1:0:1x3x480x640
+                       --optShapes=input_1:0:16x3x480x640
+                       --maxShapes=input_1:0:16x3x480x640
+                       --saveEngine=LPDNet_usa_pruned_tao5.onnx_b16_gpu0_fp16.engine
+Pipeline: streammux -> pgie -> tracker -> lpd(FP16) -> lpr -> nvvidconv
+          -> nvosd -> fakesink
+
+Invocation (results here from OUT /tmp/lpr_plate_fp16):
+    python3 standalone_detector_benchmark/lpr_benchmark.py \
+        --stages pgie,lpd,lpr --lpd-precision fp16 \
+        --streams 1 16 32 --repeats 3 --warmup --out /tmp/lpr_plate_fp16
+
+Results (mean fps of 3 runs; per-rep spread < 1%):
+
+  backend   1 stream   16        32
+  nvinfer    337.5     800.5     863.6      per-image pgie 1.17 / 1.12 ms (16/32)
+  triton     314.2    1012.9    1155.6      per-image pgie 0.91 / 0.83 ms (16/32)
+
+  triton/nvinfer: 0.93x @1  |  1.27x @16  |  1.34x @32
+
+Conclusion: the crossover pattern CARRIES OVER -- and is actually STRONGER with
+the FP16 ROI detector (triton +27% @16, +34% @32 vs +14/+19% for INT8).
+Two things stand out:
+  * Holding the precision of LPD does not change Triton's side at all (triton
+    numbers are unchanged: 314.2/1012.9/1155.6 here vs 311.9/1016.7/1156.1
+    INT8) -- Triton was always serving LPD FP16.
+  * But the FP16 engine taxes nvinfer's pipeline harder than the INT8 engine:
+    nvinfer at 16/32 dropped from 890/974 (INT8) to 800/864 (FP16) fps, and
+    per-image pgie grew from 1.04/0.98 to 1.17/1.12 ms, widening the nvinfer
+    gap exactly where Triton's server-side scheduling wins.
+So the crossover is not an INT8 artifact: it is a precision-independent
+property of the LPD+LPR ROI sub-chain, and heavier ROI compute (FP16 vs INT8)
+only enlarges it.
+
+--------------------------------------------------------------------------------
+7. EXPERIMENT 5 -- VEHICLE-ATTRIBUTE SUB-CHAIN  (pgie + make + type)
+--------------------------------------------------------------------------------
+Script   : standalone_detector_benchmark/lpr_benchmark.py (--stages pgie,make,type)
+Why      : Mirror-image of Experiment 3: drop the plate stages, keep the two
+           224x224 async vehicle classifiers.
+Pipeline: streammux -> pgie -> tracker -> vehiclemakenet -> vehicletypenet
+          -> nvvidconv -> nvosd -> fakesink
+
+Invocation (results here from OUT /tmp/lpr_veh):
+    python3 standalone_detector_benchmark/lpr_benchmark.py --stages pgie,make,type \
+        --streams 1 16 32 --repeats 3 --warmup --out /tmp/lpr_veh
+
+Results (mean fps of 3 runs):
+
+  backend   1 stream   16        32
+  nvinfer    389.2     994.0    1119.6      per-image pgie 0.92 / 0.85 ms (16/32)
+  triton     313.1    1005.5    1139.7      per-image pgie 0.92 / 0.84 ms (16/32)
+
+  triton/nvinfer: 0.80x @1  |  1.01x @16  |  1.02x @32
+
+Conclusion: essentially NO crossover in the vehicle-attribute sub-chain.
+nvinfer dominates single-stream (389 vs 313 fps) and Triton's edge at 16/32 is
+only ~1-2% -- comparable to run noise, and notably pgie per-image is identical
+between backends (0.92/0.92, 0.85/0.84). The 224x224 classifiers run in
+async_mode and ride the pgie cadence almost for free, taxing nvinfer so little
+that Triton has nothing to gain.
+
+--------------------------------------------------------------------------------
+8. CROSS-EXPERIMENT COMPARISON AND ANALYSIS
+--------------------------------------------------------------------------------
+Triton/nvinfer fps ratio by pipeline (mean of 3):
+
+  pipeline                        1 stream   16 streams   32 streams
+  homogeneous chain                ~1.0         0.80*        0.85*    (*nvinfer wins, extra=1)
+  full 5-model (LPD INT8)         0.92         1.17         1.18
+  pgie+lpd+lpr (LPD INT8)         0.91         1.14         1.19
+  pgie+lpd+lpr (LPD FP16)         0.93         1.27         1.34
+  pgie+make+type                  0.80         1.01         1.02
+
+First-order pattern:
+  * The crossover is NOT produced by a chain of identical models.
+  * The crossover IS produced by the plate-recognition pair LPD+LPR, whether the
+    LPD ROI detector is INT8 (+14-19%) or FP16 (+27-34%). It does not come from
+    the INT8 precision of the ROI detector -- heavier ROI compute only enlarges
+    the gap.
+  * The vehicle classifiers (async_mode=1) do NOT produce a meaningful
+    crossover by themselves.
+
+Where Triton's advantage on the pgie appears (per-image, 16 streams):
+  full:          nvinfer 1.08 ms  triton 0.92 ms   (Delta 0.16)
+  plate INT8:    nvinfer 1.04 ms  triton 0.91 ms   (Delta 0.13)
+  plate FP16:    nvinfer 1.17 ms  triton 0.91 ms   (Delta 0.26)
+  veh :          nvinfer 0.92 ms  triton 0.92 ms   (Delta 0.00)
+
+Interpretation (inferred, not proven): Triton's server-side scheduler can
+decouple the periodic full-frame batches of the primary detector from the
+ROI-stage load, keeping pgie cadence high. When the ROI stages are cheap/async
+(vehicle classifiers), nvinfer's in-process path suffers no such coupling, so
+the two backends converge and Triton's per-batch gRPC + server overhead is pure
+loss (clearest at 1 stream, where nvinfer wins every config). The pgie-delta
+monotonicity across plate INT8 -> plate FP16 (0.13 -> 0.26 ms) is consistent
+with that reading: more ROI work amplifies the delta Triton's scheduling
+eliminates.
+
+--------------------------------------------------------------------------------
+9. REPRODUCTION (exact commands)
+--------------------------------------------------------------------------------
+Prerequisites (inside the DeepStream container, repo mounted at /workspace):
+  * Sample models present in /opt/nvidia/deepstream/deepstream/samples/models/
+  * /workspace/models/LP/{LPD,LPR} present (LPDNet/LPRNet onnx + engines +
+    calib + dict_us.txt)
+  * LPD FP16 engine (Experiment 4) built from the LPDNet ONNX with trtexec
+    (see Experiment 4 for the exact command; only needed for --lpd-precision
+    fp16 runs)
+  * Triton binary /opt/tritonserver/bin/tritonserver
+  * The scripts self-check all paths and print which --* override to use if
+    anything is missing.
+
+  cd /workspace
+
+  1) Homogeneous detector chains (Experiment 1):
+       python3 standalone_detector_benchmark/detector_benchmark.py \
+           --sweep --sweep-max 3 --warmup --out /tmp/dbb_sweep_b32
+     Results: /tmp/dbb_sweep_b32/{sweep_summary.txt, sweep_results.csv, extra0..3/}
+
+  2) Full 5-model LPR pipeline (Experiment 2):
+       python3 standalone_detector_benchmark/lpr_benchmark.py \
+           --streams 1 16 32 --repeats 3 --warmup --out /tmp/lpr_full
+     Results: /tmp/lpr_full/{summary.txt, results.csv, logs/, triton/, configs/}
+
+  3) Plate sub-chain, INT8 LPD (Experiment 3):
+       python3 standalone_detector_benchmark/lpr_benchmark.py \
+           --stages pgie,lpd,lpr --streams 1 16 32 --repeats 3 --warmup \
+           --out /tmp/lpr_plate
+
+  4) Plate sub-chain, FP16 LPD (Experiment 4):
+       python3 standalone_detector_benchmark/lpr_benchmark.py \
+           --stages pgie,lpd,lpr --lpd-precision fp16 \
+           --streams 1 16 32 --repeats 3 --warmup \
+           --out /tmp/lpr_plate_fp16
+
+  5) Vehicle-attribute sub-chain (Experiment 5):
+       python3 standalone_detector_benchmark/lpr_benchmark.py \
+           --stages pgie,make,type --streams 1 16 32 --repeats 3 --warmup \
+           --out /tmp/lpr_veh
+
+  Useful flags on lpr_benchmark.py:
+    --stages     comma list from pgie,lpd,lpr,make,type (order-independent;
+                 pgie required, lpr pulls in lpd)
+    --lpd-precision int8|fp16  prebuilt LPD engine precision (default int8)
+    --streams    stream counts (default 1 16 32)
+    --repeats    measured runs per config (default 3)
+    --warmup     one unmeasured run per config first (absorbs engine builds,
+                 Triton cold start) -- ALWAYS use for reproducible numbers
+    --video, --lp-dir, --samples-models, --triton-bin  path overrides
+    --manage-triton / --no-manage-triton  auto start/stop the server
+
+  Useful flags on detector_benchmark.py:
+    --extra-models N   chain N extra identical detector instances (N=0 baseline)
+    --sweep --sweep-max M  run extra-models 0..M back-to-back, fresh Triton
+                       server per count, merged sweep_summary.txt
+    --streams 16 32 (default), batch == streams for both backends
+
+--------------------------------------------------------------------------------
+10. CAVEATS
+--------------------------------------------------------------------------------
+  * Single machine, single GPU, localhost gRPC -- not a network deployment test.
+  * Triton models run through onnxruntime with the TensorRT FP16 execution
+    accelerator (same FP16 engines nvinfer uses); LPD saturates INT8 via its
+    prebuilt engine and calibration file on the nvinfer side.
+  * The FP16 LPD engine (Experiment 4) was built by trtexec (TensorRT 10.9.0,
+    as shipped with DeepStream 8.0), dynamic batch 1..16 optimized at 16. Its
+    nvinfer throughput at 16/32 streams was lower than the prebuilt INT8 engine
+    (800/864 vs 891/974 fps) -- striking but consistent: heavier ROI compute
+    loads nvinfer more, which is exactly the effect under test.
+  * 1-stream per-image figures in the lpr family are 16x too small (model batch
+    16, mux batch 1) -- use fps at 1 stream.
+  * fps includes decode + tracker + OSD compute, not just inference; both
+    backends share the identical overhead.
+  * All runs stayed well within 12 GB VRAM; no OOM or decoder errors observed.
+
+--------------------------------------------------------------------------------
+11. HISTORY OF THE DETECTOR-CHAIN INVESTIGATION (findings that shaped Exp. 1)
+--------------------------------------------------------------------------------
+  * Early standalone version cycled the two tiny sample classifiers as "extra
+    models"; it moved the needle not at all.
+  * Then extras became chained TrafficCamNet detector instances. A sweep 0..6
+    (model batch fixed 16, 32 streams) showed a spurious crossover at
+    extra=1/32: nvinfer reps 891/644/684 fps vs triton 801/856/856. Rep-level
+    analysis showed it was nvinfer 32-stream jitter (batch mismatch), not a
+    real Triton advantage.
+  * A long-lived Triton server across a sweep degraded and eventually hung
+    (extra3@32, >30 min); policy became a FRESH SERVER PER COUNT under --sweep.
+  * Refactored to batch == streams for both backends (b16/b32 engines, mux
+    flushes one batch per inference). With that, rep spreads dropped below ~1%
+    and the clean extra0..3 dataset in Section 3 was produced.
+================================================================================
